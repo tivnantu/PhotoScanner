@@ -31,28 +31,45 @@ final class SimilarityEngine: Sendable {
     /// - Parameters:
     ///   - imageData: 原始图像数据
     ///   - text: 查询文本
-    /// - Returns: 余弦相似度分数（-1.0 ~ 1.0，通常在 0 ~ 1.0 之间）
+    /// - Returns: 余弦相似度分数（-1.0 ~ 1.0）
     func computeSimilarity(imageData: Data, text: String) async throws -> Float {
-        Logger.search.debug("计算图文相似度，文本: \(text)")
+        guard !imageData.isEmpty else {
+            throw PSError.invalidInput("图像数据不能为空")
+        }
+
+        let sanitizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitizedText.isEmpty else {
+            throw PSError.invalidInput("文本不能为空")
+        }
+
+        Logger.search.debug("开始计算图文相似度，文本长度: \(sanitizedText.count)")
 
         let imageEmbedding = try await embeddingService.embedImage(imageData)
-        let textEmbedding = try await embeddingService.embedText(text)
+        let textEmbedding = try await embeddingService.embedText(sanitizedText)
 
-        let score = dotProduct(imageEmbedding, textEmbedding)
+        let rawScore = try dotProduct(imageEmbedding, textEmbedding)
+        let clampedScore = max(-1, min(1, rawScore))
 
-        Logger.search.info("图文相似度: \(score, format: .fixed(precision: 4)), 文本: \(text)")
-        return score
+        Logger.search.info("图文相似度计算完成: \(clampedScore, format: .fixed(precision: 4))")
+        return clampedScore
     }
 
     // MARK: - 内部工具
 
     /// 两个向量的点积（已归一化的向量点积即余弦相似度）
-    private func dotProduct(_ a: [Float], _ b: [Float]) -> Float {
-        guard a.count == b.count else { return 0 }
-        var result: Float = 0
-        for i in 0..<a.count {
-            result += a[i] * b[i]
+    private func dotProduct(_ a: [Float], _ b: [Float]) throws -> Float {
+        guard !a.isEmpty, !b.isEmpty else {
+            throw PSError.invalidModelOutput("相似度计算输入向量不能为空")
         }
-        return result
+
+        guard a.count == b.count else {
+            throw PSError.invalidModelOutput(
+                "相似度计算维度不匹配：image=\(a.count), text=\(b.count)"
+            )
+        }
+
+        return zip(a, b).reduce(Float.zero) { partial, pair in
+            partial + pair.0 * pair.1
+        }
     }
 }

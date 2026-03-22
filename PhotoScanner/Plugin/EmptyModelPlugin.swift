@@ -21,7 +21,7 @@ actor EmptyModelPlugin: ModelPlugin {
         displayName: "Empty (Fallback)"
     )
 
-    var isLoaded = false
+    private var isLoaded = false
 
     func load() async throws {
         isLoaded = true
@@ -32,10 +32,10 @@ actor EmptyModelPlugin: ModelPlugin {
     }
 
     func encodeImage(_ imageData: Data) async throws -> [Float] {
-        throw PSError.inferenceFailed("EmptyModelPlugin 不支持图像编码")
+        throw PSError.unsupportedOperation("EmptyModelPlugin 不支持图像编码")
     }
 
     func encodeText(_ text: String) async throws -> [Float] {
-        throw PSError.inferenceFailed("EmptyModelPlugin 不支持文本编码")
+        throw PSError.unsupportedOperation("EmptyModelPlugin 不支持文本编码")
     }
 }

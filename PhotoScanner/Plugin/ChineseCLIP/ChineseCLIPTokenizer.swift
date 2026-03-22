@@ -66,13 +66,27 @@ final class ChineseCLIPTokenizer: Sendable {
         contextLength: Int = ChineseCLIPPlugin.contextLength,
         doLowerCase: Bool = true
     ) throws {
+        guard contextLength >= 2 else {
+            throw PSError.invalidInput("contextLength 至少需要容纳 [CLS] 和 [SEP]")
+        }
+
         Logger.model.info("加载词表: \(vocabPath)")
 
-        let content = try String(contentsOfFile: vocabPath, encoding: .utf8)
+        let content: String
+        do {
+            content = try String(contentsOfFile: vocabPath, encoding: .utf8)
+        } catch {
+            throw PSError.resourceUnreadable(path: vocabPath, reason: error.localizedDescription)
+        }
+
         let lines = content
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: "\r")) }
             .filter { !$0.isEmpty }
+
+        guard !lines.isEmpty else {
+            throw PSError.resourceUnreadable(path: vocabPath, reason: "词表内容为空")
+        }
 
         var vocab: [String: Int] = [:]
         var idToToken: [Int: String] = [:]

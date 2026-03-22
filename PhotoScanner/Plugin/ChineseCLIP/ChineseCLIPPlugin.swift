@@ -16,6 +16,13 @@ import OnnxRuntimeBindings
 
 actor ChineseCLIPPlugin: ModelPlugin {
 
+    private struct RuntimeContext {
+        let env: ORTEnv
+        let imageSession: ORTSession
+        let textSession: ORTSession
+        let tokenizer: ChineseCLIPTokenizer
+    }
+
     // MARK: - 模型描述
 
     nonisolated let descriptor = ModelDescriptor(
@@ -29,14 +36,8 @@ actor ChineseCLIPPlugin: ModelPlugin {
 
     // MARK: - 状态
 
-    private var isLoaded = false
-
-    // MARK: - 内部依赖（加载后赋值）
-
-    private var env: ORTEnv?
-    private var imageSession: ORTSession?
-    private var textSession: ORTSession?
-    private var tokenizer: ChineseCLIPTokenizer?
+    private var runtime: RuntimeContext?
+    private var loadTask: Task<RuntimeContext, Error>?
 
     // MARK: - 模型常量（与 Python 导出严格一致）
 
@@ -63,134 +64,173 @@ actor ChineseCLIPPlugin: ModelPlugin {
     // MARK: - 生命周期
 
     func load() async throws {
-        guard !isLoaded else { return }
+        if runtime != nil {
+            return
+        }
+
+        if let loadTask {
+            let loadedRuntime = try await loadTask.value
+            runtime = loadedRuntime
+            return
+        }
 
         let name = descriptor.displayName
         Logger.model.info("开始加载 \(name)...")
 
+        let contextLength = descriptor.contextLength
+        let task = Task<RuntimeContext, Error> {
+            try Self.createRuntimeContext(contextLength: contextLength)
+        }
+        loadTask = task
+
         do {
-            let imagePath = try BundleResource.imageEncoderPath()
-            let textPath = try BundleResource.textEncoderPath()
-            let vocabPath = try BundleResource.vocabPath()
-
-            let env = try ORTEnv(loggingLevel: .warning)
-            let sessionOptions = try ORTSessionOptions()
-            try sessionOptions.setLogSeverityLevel(.warning)
-            try sessionOptions.setIntraOpNumThreads(0)
-            try sessionOptions.setLogID("ChineseCLIP")
-
-            let imageSession = try ORTSession(env: env, modelPath: imagePath, sessionOptions: sessionOptions)
-            let textSession = try ORTSession(env: env, modelPath: textPath, sessionOptions: sessionOptions)
-            let tokenizer = try ChineseCLIPTokenizer(vocabPath: vocabPath, contextLength: descriptor.contextLength)
-
-            self.env = env
-            self.imageSession = imageSession
-            self.textSession = textSession
-            self.tokenizer = tokenizer
-            self.isLoaded = true
-
+            let loadedRuntime = try await task.value
+            runtime = loadedRuntime
+            loadTask = nil
             Logger.model.info("\(name) 加载完成")
         } catch let error as PSError {
-            await unload()
+            runtime = nil
+            loadTask = nil
             Logger.model.error("\(name) 加载失败 — \(error.localizedDescription)")
             throw error
         } catch {
-            await unload()
-            Logger.model.error("\(name) 加载失败 — \(error.localizedDescription)")
-            throw PSError.modelLoadFailed(error.localizedDescription)
+            runtime = nil
+            loadTask = nil
+            let normalizedError = PSError.modelLoadFailed("\(name) 初始化失败：\(error.localizedDescription)")
+            Logger.model.error("\(name) 加载失败 — \(normalizedError.localizedDescription)")
+            throw normalizedError
         }
     }
 
     func unload() async {
-        imageSession = nil
-        textSession = nil
-        tokenizer = nil
-        env = nil
-        isLoaded = false
-
-        let name = descriptor.displayName
-        Logger.model.info("\(name) 已卸载")
+        runtime = nil
+        loadTask = nil
+        Logger.model.info("\(self.descriptor.displayName) 已卸载")
     }
 
     // MARK: - 编码
 
     func encodeImage(_ imageData: Data) async throws -> [Float] {
-        let imageSession = try requireImageSession()
-        let imageTensor = try ChineseCLIPImagePreprocessor.preprocess(imageData: imageData)
+        guard !imageData.isEmpty else {
+            throw PSError.invalidInput("图像数据不能为空")
+        }
 
-        let inputValue = try makeTensorValue(
-            from: imageTensor,
-            elementType: .float,
-            shape: [1, 3, descriptor.imageSize, descriptor.imageSize]
-        )
+        let runtime = try requireRuntime()
 
-        let outputs = try imageSession.run(
-            withInputs: [OnnxIO.imageInput: inputValue],
-            outputNames: [OnnxIO.imageOutput],
-            runOptions: nil
-        )
+        do {
+            let imageTensor = try ChineseCLIPImagePreprocessor.preprocess(imageData: imageData)
+            let inputValue = try makeTensorValue(
+                from: imageTensor,
+                elementType: .float,
+                shape: [1, 3, descriptor.imageSize, descriptor.imageSize]
+            )
 
-        let vector = try extractFloatVector(
-            from: outputs,
-            outputName: OnnxIO.imageOutput,
-            expectedLength: descriptor.embeddingDimension
-        )
+            let outputs = try runtime.imageSession.run(
+                withInputs: [OnnxIO.imageInput: inputValue],
+                outputNames: [OnnxIO.imageOutput],
+                runOptions: nil
+            )
 
-        Logger.model.debug("图像编码完成，维度: \(vector.count)")
-        return vector
+            let vector = try extractFloatVector(
+                from: outputs,
+                outputName: OnnxIO.imageOutput,
+                expectedLength: descriptor.embeddingDimension
+            )
+
+            Logger.model.debug("图像编码完成，维度: \(vector.count)")
+            return vector
+        } catch let error as PSError {
+            throw error
+        } catch {
+            throw PSError.inferenceFailed("图像编码失败：\(error.localizedDescription)")
+        }
     }
 
     func encodeText(_ text: String) async throws -> [Float] {
-        let textSession = try requireTextSession()
-        let tokenizer = try requireTokenizer()
-        let tokenIDs = tokenizer.encodeToInt64(text)
+        let sanitizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitizedText.isEmpty else {
+            throw PSError.invalidInput("文本不能为空")
+        }
 
-        let inputValue = try makeTensorValue(
-            from: tokenIDs,
-            elementType: .int64,
-            shape: [1, descriptor.contextLength]
-        )
+        let runtime = try requireRuntime()
 
-        let outputs = try textSession.run(
-            withInputs: [OnnxIO.textInput: inputValue],
-            outputNames: [OnnxIO.textOutput],
-            runOptions: nil
-        )
+        do {
+            let tokenIDs = runtime.tokenizer.encodeToInt64(sanitizedText)
+            let inputValue = try makeTensorValue(
+                from: tokenIDs,
+                elementType: .int64,
+                shape: [1, descriptor.contextLength]
+            )
 
-        let vector = try extractFloatVector(
-            from: outputs,
-            outputName: OnnxIO.textOutput,
-            expectedLength: descriptor.embeddingDimension
-        )
+            let outputs = try runtime.textSession.run(
+                withInputs: [OnnxIO.textInput: inputValue],
+                outputNames: [OnnxIO.textOutput],
+                runOptions: nil
+            )
 
-        Logger.model.debug("文本编码完成，维度: \(vector.count)")
-        return vector
+            let vector = try extractFloatVector(
+                from: outputs,
+                outputName: OnnxIO.textOutput,
+                expectedLength: descriptor.embeddingDimension
+            )
+
+            Logger.model.debug("文本编码完成，维度: \(vector.count)")
+            return vector
+        } catch let error as PSError {
+            throw error
+        } catch {
+            throw PSError.inferenceFailed("文本编码失败：\(error.localizedDescription)")
+        }
     }
 
     // MARK: - 内部依赖检查
 
-    private func requireImageSession() throws -> ORTSession {
-        guard isLoaded, let imageSession else {
-            throw PSError.inferenceFailed("图像模型未加载")
+    private func requireRuntime() throws -> RuntimeContext {
+        if let runtime {
+            return runtime
         }
-        return imageSession
-    }
 
-    private func requireTextSession() throws -> ORTSession {
-        guard isLoaded, let textSession else {
-            throw PSError.inferenceFailed("文本模型未加载")
+        if loadTask != nil {
+            throw PSError.serviceNotReady(
+                service: descriptor.displayName,
+                reason: "模型仍在加载中，请稍后重试"
+            )
         }
-        return textSession
-    }
 
-    private func requireTokenizer() throws -> ChineseCLIPTokenizer {
-        guard isLoaded, let tokenizer else {
-            throw PSError.inferenceFailed("Tokenizer 未加载")
-        }
-        return tokenizer
+        throw PSError.serviceNotReady(
+            service: descriptor.displayName,
+            reason: "模型尚未加载"
+        )
     }
 
     // MARK: - ORT helper
+
+    nonisolated private static func createRuntimeContext(contextLength: Int) throws -> RuntimeContext {
+        let imagePath = try BundleResource.imageEncoderPath()
+        let textPath = try BundleResource.textEncoderPath()
+        let vocabPath = try BundleResource.vocabPath()
+
+        let env = try ORTEnv(loggingLevel: .warning)
+        let sessionOptions = try makeSessionOptions(logID: "ChineseCLIP")
+        let imageSession = try ORTSession(env: env, modelPath: imagePath, sessionOptions: sessionOptions)
+        let textSession = try ORTSession(env: env, modelPath: textPath, sessionOptions: sessionOptions)
+        let tokenizer = try ChineseCLIPTokenizer(vocabPath: vocabPath, contextLength: contextLength)
+
+        return RuntimeContext(
+            env: env,
+            imageSession: imageSession,
+            textSession: textSession,
+            tokenizer: tokenizer
+        )
+    }
+
+    nonisolated private static func makeSessionOptions(logID: String) throws -> ORTSessionOptions {
+        let sessionOptions = try ORTSessionOptions()
+        try sessionOptions.setLogSeverityLevel(.warning)
+        try sessionOptions.setIntraOpNumThreads(0)
+        try sessionOptions.setLogID(logID)
+        return sessionOptions
+    }
 
     private func makeTensorValue<T>(
         from values: [T],
@@ -219,7 +259,7 @@ actor ChineseCLIPPlugin: ModelPlugin {
         expectedLength: Int
     ) throws -> [Float] {
         guard let outputValue = outputs[outputName] else {
-            throw PSError.inferenceFailed("未找到输出: \(outputName)")
+            throw PSError.invalidModelOutput("未找到输出: \(outputName)")
         }
 
         let tensorData = try outputValue.tensorData()
@@ -230,7 +270,9 @@ actor ChineseCLIPPlugin: ModelPlugin {
         }
 
         guard values.count >= expectedLength else {
-            throw PSError.inferenceFailed("输出长度异常: 期望至少 \(expectedLength)，实际 \(values.count)")
+            throw PSError.invalidModelOutput(
+                "输出长度异常：期望至少 \(expectedLength)，实际 \(values.count)"
+            )
         }
 
         if values.count == expectedLength {
