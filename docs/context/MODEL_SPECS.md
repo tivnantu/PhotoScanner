@@ -90,8 +90,7 @@ Chinese-CLIP 使用自实现的 `FullTokenizer`（等价于 Bert WordPiece），
 ```python
 # 图像预处理 — 来自 cn_clip/clip/utils.py:image_transform
 transform = Compose([
-    Resize(resolution, interpolation=InterpolationMode.BICUBIC),
-    CenterCrop(resolution),
+    Resize((resolution, resolution), interpolation=InterpolationMode.BICUBIC),
     _convert_to_rgb,
     ToTensor(),
     Normalize(mean=(0.48145466, 0.4578275, 0.40821073),

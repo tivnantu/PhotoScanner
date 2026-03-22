@@ -44,7 +44,7 @@ struct ModelDescriptor: Sendable {
 protocol ModelPlugin: Sendable {
 
     /// 模型的静态描述信息（编译期常量，nonisolated 安全）
-    var descriptor: ModelDescriptor { get }
+    nonisolated var descriptor: ModelDescriptor { get }
 
     /// 加载模型到内存（可能耗时）
     func load() async throws

@@ -19,37 +19,60 @@ import OSLog
 
 final class ChineseCLIPTokenizer: Sendable {
 
+    // MARK: - 特殊 token
+
+    enum SpecialToken {
+        nonisolated static let pad = "[PAD]"
+        nonisolated static let unk = "[UNK]"
+        nonisolated static let cls = "[CLS]"
+        nonisolated static let sep = "[SEP]"
+    }
+
     // MARK: - 常量
 
     /// 最大序列长度（含特殊 token）
-    let contextLength: Int = 52
+    nonisolated let contextLength: Int
 
-    /// 特殊 token ID
-    enum SpecialToken {
-        static let cls: Int = 101    // [CLS]
-        static let sep: Int = 102    // [SEP]
-        static let pad: Int = 0      // [PAD]
-        static let unk: Int = 100    // [UNK]
-    }
+    /// WordPiece 单词最大字符数
+    private nonisolated let maxInputCharactersPerWord: Int = 200
+
+    /// 是否执行 lowercase，与 Python 默认行为保持一致
+    private nonisolated let doLowerCase: Bool
 
     // MARK: - 内部状态
 
     /// 词表：token string → token id
-    private let vocab: [String: Int]
+    private nonisolated let vocab: [String: Int]
 
     /// 反向词表：token id → token string（调试用）
-    private let idToToken: [Int: String]
+    private nonisolated let idToToken: [Int: String]
+
+    /// 特殊 token id
+    private nonisolated let padTokenID: Int
+    private nonisolated let unkTokenID: Int
+    private nonisolated let clsTokenID: Int
+    private nonisolated let sepTokenID: Int
 
     // MARK: - 初始化
 
     /// 从 vocab.txt 文件初始化
     ///
-    /// - Parameter vocabPath: vocab.txt 的文件路径
-    init(vocabPath: String) throws {
+    /// - Parameters:
+    ///   - vocabPath: vocab.txt 的文件路径
+    ///   - contextLength: 固定输出长度，Chinese-CLIP 为 52
+    ///   - doLowerCase: 是否小写化，Chinese-CLIP 默认 true
+    nonisolated init(
+        vocabPath: String,
+        contextLength: Int = ChineseCLIPPlugin.contextLength,
+        doLowerCase: Bool = true
+    ) throws {
         Logger.model.info("加载词表: \(vocabPath)")
 
         let content = try String(contentsOfFile: vocabPath, encoding: .utf8)
-        let lines = content.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        let lines = content
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: "\r")) }
+            .filter { !$0.isEmpty }
 
         var vocab: [String: Int] = [:]
         var idToToken: [Int: String] = [:]
@@ -58,8 +81,21 @@ final class ChineseCLIPTokenizer: Sendable {
             idToToken[index] = token
         }
 
+        self.contextLength = contextLength
+        self.doLowerCase = doLowerCase
         self.vocab = vocab
         self.idToToken = idToToken
+        self.padTokenID = vocab[SpecialToken.pad] ?? 0
+        self.unkTokenID = vocab[SpecialToken.unk] ?? 100
+        self.clsTokenID = vocab[SpecialToken.cls] ?? 101
+        self.sepTokenID = vocab[SpecialToken.sep] ?? 102
+
+        guard vocab[SpecialToken.pad] != nil,
+              vocab[SpecialToken.unk] != nil,
+              vocab[SpecialToken.cls] != nil,
+              vocab[SpecialToken.sep] != nil else {
+            throw PSError.invalidInput("词表缺少必要特殊 token")
+        }
 
         Logger.model.info("词表加载完成，共 \(vocab.count) 个 token")
     }
@@ -69,66 +105,230 @@ final class ChineseCLIPTokenizer: Sendable {
     /// 将文本编码为固定长度的 token id 数组
     ///
     /// - Parameter text: 原始文本
-    /// - Returns: 长度为 contextLength (52) 的 Int 数组
-    func encode(_ text: String) -> [Int] {
+    /// - Returns: 长度为 contextLength 的 Int 数组
+    nonisolated func encode(_ text: String) -> [Int] {
+        let wordpieceTokens = tokenize(text)
+        let tokenIDs = wordpieceTokens.map { vocab[$0] ?? unkTokenID }
 
-        // Step 1: BasicTokenizer — 分词
-        let tokens = basicTokenize(text)
+        let maxContentLength = contextLength - 2
+        let truncated = Array(tokenIDs.prefix(maxContentLength))
 
-        // Step 2: WordpieceTokenizer — 子词切分
-        var wordpieceIds: [Int] = []
-        for token in tokens {
-            let subIds = wordpieceTokenize(token)
-            wordpieceIds.append(contentsOf: subIds)
-        }
-
-        // Step 3: 拼接特殊 token 并截断
-        let maxContentLength = contextLength - 2  // 留出 [CLS] 和 [SEP] 的位置
-        let truncated = Array(wordpieceIds.prefix(maxContentLength))
-
-        var result = [SpecialToken.cls] + truncated + [SpecialToken.sep]
-
-        // Step 4: PAD 填充到 contextLength
+        var result = [clsTokenID] + truncated + [sepTokenID]
         while result.count < contextLength {
-            result.append(SpecialToken.pad)
+            result.append(padTokenID)
         }
 
         return result
     }
 
-    // MARK: - BasicTokenizer
-
-    /// 基础分词：中文逐字拆分 + 小写 + 去音标 + 标点切分
-    ///
-    /// 对应 Python 端 bert_tokenizer.py 的 BasicTokenizer
-    private func basicTokenize(_ text: String) -> [String] {
-        // TODO: Phase1 完整实现
-        // 1. 清理空白字符
-        // 2. 中文字符前后加空格（CJK Unified Ideographs）
-        // 3. 转小写
-        // 4. 去除 Unicode 音标（accent stripping）
-        // 5. 按空白和标点切分
-
-        // 临时简化实现：按空格切分 + 小写
-        return text.lowercased()
-            .components(separatedBy: .whitespaces)
-            .filter { !$0.isEmpty }
+    /// 与 ONNX 输入对齐的 Int64 版本
+    nonisolated func encodeToInt64(_ text: String) -> [Int64] {
+        encode(text).map(Int64.init)
     }
 
-    // MARK: - WordpieceTokenizer
-
-    /// WordPiece 子词切分
-    ///
-    /// 对应 Python 端 bert_tokenizer.py 的 WordpieceTokenizer
-    private func wordpieceTokenize(_ token: String) -> [Int] {
-        // TODO: Phase1 完整实现
-        // 1. 尝试在词表中查找完整 token
-        // 2. 如果找不到，用 ## 前缀逐步缩短匹配
-        // 3. 完全无法匹配的部分映射为 [UNK]
-
-        if let id = vocab[token] {
-            return [id]
+    /// 仅用于调试：返回 WordPiece token 字符串
+    nonisolated func tokenize(_ text: String) -> [String] {
+        var splitTokens: [String] = []
+        for token in basicTokenize(text) {
+            splitTokens.append(contentsOf: wordpieceTokenize(token))
         }
-        return [SpecialToken.unk]
+        return splitTokens
+    }
+
+    // MARK: - 调试
+
+    nonisolated func tokenString(for id: Int) -> String? {
+        idToToken[id]
+    }
+
+    // MARK: - BasicTokenizer
+
+    /// 基础分词：清理控制字符 → 中文逐字拆分 → lowercase → 去音标 → 标点切分
+    private nonisolated func basicTokenize(_ text: String) -> [String] {
+        let cleaned = cleanText(text)
+        let chineseSpaced = tokenizeChineseCharacters(in: cleaned)
+        let originalTokens = whitespaceTokenize(chineseSpaced)
+
+        var splitTokens: [String] = []
+        for originalToken in originalTokens {
+            let normalizedToken: String
+            if doLowerCase {
+                normalizedToken = stripAccents(from: originalToken.lowercased())
+            } else {
+                normalizedToken = originalToken
+            }
+            splitTokens.append(contentsOf: splitOnPunctuation(normalizedToken))
+        }
+
+        return whitespaceTokenize(splitTokens.joined(separator: " "))
+    }
+
+    private nonisolated func cleanText(_ text: String) -> String {
+        var output = String.UnicodeScalarView()
+        output.reserveCapacity(text.unicodeScalars.count)
+
+        for scalar in text.unicodeScalars {
+            let codePoint = scalar.value
+            if codePoint == 0 || codePoint == 0xFFFD || isControl(scalar) {
+                continue
+            }
+
+            if isWhitespace(scalar) {
+                output.append(" ")
+            } else {
+                output.append(scalar)
+            }
+        }
+
+        return String(output)
+    }
+
+    private nonisolated func tokenizeChineseCharacters(in text: String) -> String {
+        var output = String.UnicodeScalarView()
+        output.reserveCapacity(text.unicodeScalars.count * 3)
+
+        for scalar in text.unicodeScalars {
+            if isChineseCharacter(scalar.value) {
+                output.append(" ")
+                output.append(scalar)
+                output.append(" ")
+            } else {
+                output.append(scalar)
+            }
+        }
+
+        return String(output)
+    }
+
+    private nonisolated func stripAccents(from text: String) -> String {
+        let decomposed = text.decomposedStringWithCanonicalMapping
+        let filteredScalars = decomposed.unicodeScalars.filter {
+            $0.properties.generalCategory != .nonspacingMark
+        }
+        return String(String.UnicodeScalarView(filteredScalars))
+    }
+
+    private nonisolated func splitOnPunctuation(_ text: String) -> [String] {
+        guard !text.isEmpty else { return [] }
+
+        let characters = Array(text)
+        var output: [[Character]] = []
+        var startNewWord = true
+
+        for character in characters {
+            if isPunctuation(character) {
+                output.append([character])
+                startNewWord = true
+            } else {
+                if startNewWord {
+                    output.append([])
+                }
+                startNewWord = false
+                output[output.count - 1].append(character)
+            }
+        }
+
+        return output.map { String($0) }
+    }
+
+    // MARK: - WordPieceTokenizer
+
+    private nonisolated func wordpieceTokenize(_ token: String) -> [String] {
+        let tokenCharacters = Array(token)
+        if tokenCharacters.count > maxInputCharactersPerWord {
+            return [SpecialToken.unk]
+        }
+
+        var start = 0
+        var subTokens: [String] = []
+
+        while start < tokenCharacters.count {
+            var end = tokenCharacters.count
+            var currentSubToken: String?
+
+            while start < end {
+                var substring = String(tokenCharacters[start..<end])
+                if start > 0 {
+                    substring = "##" + substring
+                }
+
+                if vocab[substring] != nil {
+                    currentSubToken = substring
+                    break
+                }
+                end -= 1
+            }
+
+            guard let currentSubToken else {
+                return [SpecialToken.unk]
+            }
+
+            subTokens.append(currentSubToken)
+            start = end
+        }
+
+        return subTokens
+    }
+
+    // MARK: - Unicode helpers
+
+    private nonisolated func whitespaceTokenize(_ text: String) -> [String] {
+        text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    }
+
+    private nonisolated func isWhitespace(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar == " " || scalar == "\t" || scalar == "\n" || scalar == "\r" {
+            return true
+        }
+        return scalar.properties.generalCategory == .spaceSeparator
+    }
+
+    private nonisolated func isControl(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar == "\t" || scalar == "\n" || scalar == "\r" {
+            return false
+        }
+
+        switch scalar.properties.generalCategory {
+        case .control, .format:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private nonisolated func isPunctuation(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first else { return false }
+        let codePoint = scalar.value
+
+        if (33...47).contains(codePoint)
+            || (58...64).contains(codePoint)
+            || (91...96).contains(codePoint)
+            || (123...126).contains(codePoint) {
+            return true
+        }
+
+        switch scalar.properties.generalCategory {
+        case .connectorPunctuation,
+             .dashPunctuation,
+             .openPunctuation,
+             .closePunctuation,
+             .initialPunctuation,
+             .finalPunctuation,
+             .otherPunctuation:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private nonisolated func isChineseCharacter(_ codePoint: UInt32) -> Bool {
+        (0x4E00...0x9FFF).contains(codePoint)
+        || (0x3400...0x4DBF).contains(codePoint)
+        || (0x20000...0x2A6DF).contains(codePoint)
+        || (0x2A700...0x2B73F).contains(codePoint)
+        || (0x2B740...0x2B81F).contains(codePoint)
+        || (0x2B820...0x2CEAF).contains(codePoint)
+        || (0xF900...0xFAFF).contains(codePoint)
+        || (0x2F800...0x2FA1F).contains(codePoint)
     }
 }

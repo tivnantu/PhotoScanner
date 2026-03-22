@@ -18,7 +18,7 @@ enum BundleResource {
     ///   - ext: 扩展名
     ///   - subdirectory: 可选子目录路径
     /// - Returns: 资源文件的完整路径
-    static func path(
+    nonisolated static func path(
         forResource name: String,
         withExtension ext: String,
         subdirectory: String? = nil
@@ -49,24 +49,15 @@ enum BundleResource {
 
 extension BundleResource {
 
-    /// ChineseCLIP 模型资源的 Bundle 子目录
-    private static let chineseCLIPDirectory = "ViT-B-16/ONNX/FP32"
-
-    /// 词表文件的 Bundle 子目录
-    private static let vocabDirectory = "ViT-B-16"
-
-    /// 图像编码器 ONNX 模型路径
-    static func imageEncoderPath() throws -> String {
-        try path(forResource: "image_encoder", withExtension: "onnx", subdirectory: chineseCLIPDirectory)
+    nonisolated static func imageEncoderPath() throws -> String {
+        try path(forResource: "image_encoder", withExtension: "onnx")
     }
 
-    /// 文本编码器 ONNX 模型路径
-    static func textEncoderPath() throws -> String {
-        try path(forResource: "text_encoder", withExtension: "onnx", subdirectory: chineseCLIPDirectory)
+    nonisolated static func textEncoderPath() throws -> String {
+        try path(forResource: "text_encoder", withExtension: "onnx")
     }
 
-    /// 词表文件路径
-    static func vocabPath() throws -> String {
-        try path(forResource: "vocab", withExtension: "txt", subdirectory: vocabDirectory)
+    nonisolated static func vocabPath() throws -> String {
+        try path(forResource: "vocab", withExtension: "txt")
     }
 }

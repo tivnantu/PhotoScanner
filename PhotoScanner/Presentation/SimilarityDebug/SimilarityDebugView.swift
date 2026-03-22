@@ -1,16 +1,5 @@
-//
-// SimilarityDebugView.swift
-// PhotoScanner
-//
-// 底模接入验证页。
-// 功能：选 1 张图 → 输入 1 条文本 → 计算相似度 → 展示结果。
-// 定位：不是最终产品页，是 Plugin / Engine 边界的验证台。
-//
-
 import SwiftUI
 import PhotosUI
-
-// MARK: - SimilarityDebugView
 
 struct SimilarityDebugView: View {
 
@@ -36,13 +25,13 @@ struct SimilarityDebugView: View {
         }
     }
 
-    // MARK: - 图片选择区
-
     @ViewBuilder
     private var imageSection: some View {
+        let preview = viewModel?.selectedImagePreview
+
         Section("图片") {
             PhotosPicker(selection: $pickerItem, matching: .images) {
-                if let preview = viewModel?.selectedImagePreview {
+                if let preview {
                     preview
                         .resizable()
                         .scaledToFit()
@@ -60,8 +49,6 @@ struct SimilarityDebugView: View {
         }
     }
 
-    // MARK: - 文本输入区
-
     @ViewBuilder
     private var textSection: some View {
         Section("文本") {
@@ -76,8 +63,6 @@ struct SimilarityDebugView: View {
             }
         }
     }
-
-    // MARK: - 操作区
 
     @ViewBuilder
     private var actionSection: some View {
@@ -109,8 +94,6 @@ struct SimilarityDebugView: View {
         default: return "计算相似度"
         }
     }
-
-    // MARK: - 结果区
 
     @ViewBuilder
     private var resultSection: some View {
