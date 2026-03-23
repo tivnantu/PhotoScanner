@@ -35,6 +35,12 @@ struct TextSearchResultsView: View {
             // 设置初始查询并立即搜索
             queryText = initialQuery
             nextViewModel.queryText = initialQuery
+            
+            // 保存搜索历史
+            Task {
+                await SearchHistoryManager.shared.addHistory(initialQuery)
+            }
+            
             await nextViewModel.performSearch()
         }
     }
@@ -75,6 +81,7 @@ struct TextSearchResultsView: View {
                         if !queryText.trimmingCharacters(in: .whitespaces).isEmpty {
                             viewModel.queryText = queryText
                             Task {
+                                await SearchHistoryManager.shared.addHistory(queryText)
                                 await viewModel.performSearch()
                             }
                         }

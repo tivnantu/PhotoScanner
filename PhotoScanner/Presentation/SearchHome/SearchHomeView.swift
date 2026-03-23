@@ -7,8 +7,12 @@ struct SearchHomeView: View {
     @State private var showTextSearch: Bool = false
     @State private var showImageSearch: Bool = false
     @State private var selectedPickerItem: PhotosPickerItem?
-    @State private var recentSearches: [String] = ["风景", "人物", "建筑", "美食", "旅行", "宠物"]
+    @State private var searchHistory: [String] = []
+    @State private var showClearHistoryAlert: Bool = false
     @Namespace private var searchTransition
+    
+    // 高频搜索建议
+    private let searchSuggestions: [String] = ["海边日落", "宠物", "笑容"]
     
     var body: some View {
         NavigationStack {
@@ -42,9 +46,7 @@ struct SearchHomeView: View {
                             .textFieldStyle(.plain)
                             .onSubmit {
                                 if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        showTextSearch = true
-                                    }
+                                    saveSearchAndNavigate()
                                 }
                             }
                         
@@ -73,28 +75,70 @@ struct SearchHomeView: View {
                 }
                 .padding(.horizontal, 20)
                 
-                // 搜索历史
+                // 搜索建议和历史
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("搜索历史")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                    
-                    FlowLayout(spacing: 8) {
-                        ForEach(recentSearches, id: \.self) { search in
-                            Button(action: {
-                                searchText = search
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    showTextSearch = true
+                    // 高频搜索建议
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("推荐搜索")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        
+                        HStack(spacing: 8) {
+                            ForEach(searchSuggestions, id: \.self) { suggestion in
+                                Button(action: {
+                                    searchText = suggestion
+                                    saveSearchAndNavigate()
+                                }) {
+                                    Text(suggestion)
+                                        .font(.subheadline)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 8)
+                                        .background(Color.blue.opacity(0.1))
+                                        .foregroundStyle(.blue)
+                                        .clipShape(Capsule())
                                 }
-                            }) {
-                                Text(search)
-                                    .font(.subheadline)
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 8)
-                                    .background(.ultraThinMaterial)
-                                    .clipShape(Capsule())
                             }
-                            .foregroundStyle(.primary)
+                        }
+                    }
+                    
+                    // 搜索历史
+                    if !searchHistory.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("搜索历史")
+                                    .font(.headline)
+                                    .foregroundStyle(.secondary)
+                                
+                                Spacer()
+                                
+                                Button("清除") {
+                                    showClearHistoryAlert = true
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                            }
+                            
+                            FlowLayout(spacing: 8) {
+                                ForEach(searchHistory, id: \.self) { query in
+                                    Button(action: {
+                                        searchText = query
+                                        saveSearchAndNavigate()
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "clock.arrow.circlepath")
+                                                .font(.caption2)
+                                            
+                                            Text(query)
+                                                .font(.subheadline)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(.ultraThinMaterial)
+                                        .clipShape(Capsule())
+                                    }
+                                    .foregroundStyle(.primary)
+                                }
+                            }
                         }
                     }
                 }
@@ -115,7 +159,42 @@ struct SearchHomeView: View {
                     }
                 }
             }
+            .task {
+                await loadSearchHistory()
+            }
+            .alert("清除搜索历史", isPresented: $showClearHistoryAlert) {
+                Button("取消", role: .cancel) {}
+                Button("清除", role: .destructive) {
+                    Task {
+                        await clearSearchHistory()
+                    }
+                }
+            } message: {
+                Text("确定要清除所有搜索历史吗？")
+            }
         }
+    }
+    
+    // MARK: - Helper Methods
+    
+    private func loadSearchHistory() async {
+        searchHistory = await SearchHistoryManager.shared.getHistory()
+    }
+    
+    private func saveSearchAndNavigate() {
+        Task {
+            await SearchHistoryManager.shared.addHistory(searchText)
+            await loadSearchHistory()
+            
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showTextSearch = true
+            }
+        }
+    }
+    
+    private func clearSearchHistory() async {
+        await SearchHistoryManager.shared.clearHistory()
+        searchHistory = []
     }
 }
 
