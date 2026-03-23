@@ -192,7 +192,7 @@ enum IndexBinaryFormat {
     }
 }
 
-private extension Data {
+extension Data {
     mutating func append<T: FixedWidthInteger>(littleEndian value: T) {
         var littleEndianValue = value.littleEndian
         Swift.withUnsafeBytes(of: &littleEndianValue) { rawBuffer in

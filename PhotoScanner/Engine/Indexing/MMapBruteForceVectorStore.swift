@@ -9,6 +9,7 @@ actor MMapBruteForceVectorStore: VectorStore {
     private var rows: [BinaryIndexRowMetadata] = []
     private var mappedData: Data?
     private var dataOffset: Int = 0
+    private var assetIdToIndex: [String: Int] = [:]
 
     init(indexStore: DiskBackedIndexStore) {
         self.indexStore = indexStore
@@ -51,6 +52,12 @@ actor MMapBruteForceVectorStore: VectorStore {
         self.rows = parsed.rows
         self.mappedData = data
         self.dataOffset = parsed.dataOffset
+        
+        // 构建 assetId -> rowIndex 映射
+        self.assetIdToIndex = [:]
+        for (index, row) in parsed.rows.enumerated() {
+            assetIdToIndex[row.assetLocalIdentifier] = index
+        }
 
         Logger.index.info("mmap 向量主文件已加载，条目数: \(manifest.itemCount)")
         return true
@@ -186,6 +193,44 @@ actor MMapBruteForceVectorStore: VectorStore {
         rows = []
         mappedData = nil
         dataOffset = 0
+        assetIdToIndex = [:]
         Logger.index.info("mmap VectorStore 已清空")
+    }
+    
+    /// 获取指定 Asset 的 embedding（如果存在）
+    /// - Parameter assetId: Asset ID
+    /// - Returns: Embedding vector，如果不存在返回 nil
+    func getEmbedding(for assetId: String) async throws -> [Float]? {
+        // 确保索引已加载
+        if mappedData == nil {
+            _ = try await restoreIfAvailable()
+        }
+        
+        guard let manifest else {
+            throw PSError.serviceNotReady(service: "VectorStore", reason: "索引尚未建立")
+        }
+        guard let mappedData else {
+            throw PSError.serviceNotReady(service: "VectorStore", reason: "向量主文件尚未加载")
+        }
+        
+        // 查找 assetId 对应的 rowIndex
+        guard let rowIndex = assetIdToIndex[assetId] else {
+            return nil
+        }
+        
+        // 从 mmap 文件中读取对应的 embedding
+        let dimension = manifest.embeddingDimension
+        let offset = dataOffset + rowIndex * dimension * MemoryLayout<Float>.size
+        
+        var embedding: [Float] = []
+        embedding.reserveCapacity(dimension)
+        
+        for elementIndex in 0..<dimension {
+            let elementOffset = offset + elementIndex * MemoryLayout<UInt32>.size
+            let bits: UInt32 = try mappedData.loadLittleEndian(at: elementOffset)
+            embedding.append(Float(bitPattern: bits))
+        }
+        
+        return embedding
     }
 }
