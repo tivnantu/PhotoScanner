@@ -12,4 +12,10 @@ protocol IndexStore: Sendable {
     func loadSnapshot() async throws -> IndexSnapshot?
     func saveSnapshot(_ snapshot: IndexSnapshot) async throws
     func clear() async throws
+
+    /// 加载检查点（断点续传）
+    func loadCheckpoint() async throws -> IndexCheckpoint?
+
+    /// 保存检查点
+    func saveCheckpoint(_ checkpoint: IndexCheckpoint) async throws
 }
