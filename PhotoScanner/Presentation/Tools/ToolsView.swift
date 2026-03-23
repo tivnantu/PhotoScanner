@@ -1,14 +1,19 @@
 import SwiftUI
 
-/// 工具页（发现页）- 参考UI重新设计
+/// 工具页
 struct ToolsView: View {
+    @Environment(\.services) private var services
+    
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
                     // 功能卡片网格
-                    VStack(spacing: 12) {
-                        HStack(spacing: 12) {
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12)
+                    ], spacing: 12) {
+                        NavigationLink(destination: TextImageSimilarityView(services: services)) {
                             ToolCard(
                                 title: "图文相似度",
                                 subtitle: "照片与文字匹配度",
@@ -17,10 +22,11 @@ struct ToolsView: View {
                                     Color(red: 88/255, green: 166/255, blue: 255/255),
                                     Color(red: 126/255, green: 182/255, blue: 255/255)
                                 ])
-                            ) {
-                                // TODO: 导航到图文相似度页面
-                            }
-                            
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        
+                        NavigationLink(destination: ImageImageSimilarityView(services: services)) {
                             ToolCard(
                                 title: "图图相似度",
                                 subtitle: "两张照片对比",
@@ -29,12 +35,11 @@ struct ToolsView: View {
                                     Color(red: 255/255, green: 149/255, blue: 0/255),
                                     Color(red: 255/255, green: 179/255, blue: 64/255)
                                 ])
-                            ) {
-                                // TODO: 导航到图图相似度页面
-                            }
+                            )
                         }
+                        .buttonStyle(.plain)
                         
-                        HStack(spacing: 12) {
+                        NavigationLink(destination: SimilarityClusteringView(services: services)) {
                             ToolCard(
                                 title: "相似聚类",
                                 subtitle: "自动发现相似图片簇",
@@ -43,22 +48,9 @@ struct ToolsView: View {
                                     Color(red: 175/255, green: 82/255, blue: 222/255),
                                     Color(red: 191/255, green: 114/255, blue: 234/255)
                                 ])
-                            ) {
-                                // TODO: 导航到相似聚类页面
-                            }
-                            
-                            ToolCard(
-                                title: "以图搜图",
-                                subtitle: "选张照片找相似",
-                                icon: "photo.fill",
-                                gradient: Gradient(colors: [
-                                    Color(red: 52/255, green: 199/255, blue: 89/255),
-                                    Color(red: 94/255, green: 212/255, blue: 123/255)
-                                ])
-                            ) {
-                                // TODO: 导航到以图搜图页面
-                            }
+                            )
                         }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
@@ -93,7 +85,7 @@ struct ToolsView: View {
                 }
                 .padding(.bottom, 20)
             }
-            .navigationTitle("发现")
+            .navigationTitle("工具")
             .navigationBarTitleDisplayMode(.large)
         }
     }
@@ -106,43 +98,55 @@ struct ToolCard: View {
     let subtitle: String
     let icon: String
     let gradient: Gradient
-    let action: () -> Void
+    var action: (() -> Void)? = nil
     
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
-                // 图标
-                Image(systemName: icon)
-                    .font(.system(size: 28))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        LinearGradient(
-                            gradient: gradient,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                
-                Spacer()
-                
-                // 标题和副标题
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        if let action = action {
+            Button(action: action) {
+                cardContent
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(Color(.systemGray6))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .buttonStyle(.plain)
+        } else {
+            cardContent
         }
+    }
+    
+    @ViewBuilder
+    private var cardContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // 图标
+            Image(systemName: icon)
+                .font(.system(size: 22))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(
+                    LinearGradient(
+                        gradient: gradient,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            
+            Spacer()
+            
+            // 标题和副标题
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+                
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 110)
+        .padding(12)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
