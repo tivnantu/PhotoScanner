@@ -246,6 +246,7 @@ final class TextSearchViewModel {
     private let searchEngine: SearchEngine
     private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
     private let performanceStore: RuntimePerformanceStore
+    private let thumbnailCache: ThumbnailCache
     private var hasInitialized = false
 
     private var trimmedQuery: String {
@@ -257,6 +258,7 @@ final class TextSearchViewModel {
         self.searchEngine = services.searchEngine
         self.photoLibraryAssetProvider = services.photoLibraryAssetProvider
         self.performanceStore = services.runtimePerformanceStore
+        self.thumbnailCache = services.thumbnailCache
     }
 
     func initialize() async {
@@ -352,6 +354,12 @@ final class TextSearchViewModel {
             
             // 智能过滤：根据相似度决定展示数量
             let results = smartFilterResults(allResults)
+            
+            // 预加载缩略图（后台执行，不阻塞 UI）
+            let assetIds = results.compactMap { result -> String? in
+                indexedAssets.first { $0.assetLocalIdentifier == result.assetLocalIdentifier }?.photoLibraryAssetIdentifier
+            }
+            await thumbnailCache.preload(assetIds: assetIds)
             
             let previewStartedAt = ContinuousClock.now
             var viewData: [TextSearchResultItem] = []

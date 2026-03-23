@@ -148,6 +148,11 @@ actor IndexEngine {
         let candidateAssetIdentifiers = sortedAssets.map(\.assetLocalIdentifier)
         let totalCount = sortedAssets.count
         var completedCount = 0
+        
+        // 错误恢复策略
+        var consecutiveFailures = 0
+        var skippedCount = 0
+        let maxConsecutiveFailures = 10
 
         do {
             try await embeddingService.initialize()
@@ -187,28 +192,47 @@ actor IndexEngine {
                 // 热节流：过热时暂停，冷却后恢复
                 try await thermalThrottler.waitIfNeeded()
                 
-                let imageData = try await resolveImageData(for: asset)
-                let embedding = try await embeddingService.embedImage(imageData)
-                let entry = try IndexEntry(
-                    assetLocalIdentifier: asset.assetLocalIdentifier,
-                    assetFingerprint: asset.assetFingerprint,
-                    embedding: embedding,
-                    createdAt: asset.createdAt,
-                    updatedAt: asset.updatedAt
-                )
-                try await indexStore.saveChunk(entry)
-                entriesByID[entry.assetLocalIdentifier] = entry
-                completedCount += 1
+                // 错误恢复：单张失败跳过，连续失败计数
+                do {
+                    let imageData = try await resolveImageData(for: asset)
+                    let embedding = try await embeddingService.embedImage(imageData)
+                    let entry = try IndexEntry(
+                        assetLocalIdentifier: asset.assetLocalIdentifier,
+                        assetFingerprint: asset.assetFingerprint,
+                        embedding: embedding,
+                        createdAt: asset.createdAt,
+                        updatedAt: asset.updatedAt
+                    )
+                    try await indexStore.saveChunk(entry)
+                    entriesByID[entry.assetLocalIdentifier] = entry
+                    completedCount += 1
+                    
+                    // 成功后重置连续失败计数
+                    consecutiveFailures = 0
 
-                let checkpoint = IndexCheckpoint.building(
-                    candidateAssetIdentifiers: candidateAssetIdentifiers,
-                    completedCount: completedCount,
-                    totalCount: totalCount
-                )
-                try await indexStore.saveCheckpoint(checkpoint)
+                    let checkpoint = IndexCheckpoint.building(
+                        candidateAssetIdentifiers: candidateAssetIdentifiers,
+                        completedCount: completedCount,
+                        totalCount: totalCount
+                    )
+                    try await indexStore.saveCheckpoint(checkpoint)
 
-                if let progress = checkpoint.progress {
-                    await progressHandler?(.building(progress: progress))
+                    if let progress = checkpoint.progress {
+                        await progressHandler?(.building(progress: progress))
+                    }
+                } catch {
+                    // 单张失败跳过，记录日志
+                    consecutiveFailures += 1
+                    skippedCount += 1
+                    Logger.index.warning(
+                        "索引构建跳过失败图片: \(Self.shortIdentifier(asset.assetLocalIdentifier)), 原因: \(error.localizedDescription), 连续失败: \(consecutiveFailures)"
+                    )
+                    
+                    // 连续失败 10 次中止
+                    if consecutiveFailures >= maxConsecutiveFailures {
+                        throw PSError.storageCorrupted("连续失败 \(maxConsecutiveFailures) 次，中止索引构建")
+                    }
+                    // 单张失败继续处理下一张
                 }
                 
                 // 推理后让出 CPU，避免持续高负载

@@ -12,6 +12,7 @@ class ImageSearchViewModel {
     private let embeddingService: EmbeddingService
     private let vectorStore: any VectorStore
     private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
+    private let thumbnailCache: ThumbnailCache
     
     // MARK: - State
     
@@ -25,6 +26,7 @@ class ImageSearchViewModel {
         self.embeddingService = services.embeddingService
         self.vectorStore = services.vectorStore
         self.photoLibraryAssetProvider = services.photoLibraryAssetProvider
+        self.thumbnailCache = services.thumbnailCache
     }
     
     /// 初始化服务
@@ -93,6 +95,10 @@ class ImageSearchViewModel {
             
             // 智能过滤：根据相似度决定展示数量
             let filteredResults = smartFilterResults(allResults)
+            
+            // 预加载缩略图（后台执行，不阻塞 UI）
+            let assetIds = filteredResults.map { $0.assetLocalIdentifier }
+            await thumbnailCache.preload(assetIds: assetIds)
             
             let searchResults = try await loadThumbnails(for: filteredResults)
             state = .displaying(searchResults)
