@@ -1,4 +1,5 @@
 import SwiftUI
+import Photos
 
 /// 设置页 - List + Section 布局
 struct SettingsView: View {
@@ -210,8 +211,8 @@ class SettingsViewModel {
             canResumeBuilding = false
         }
         
-        // 获取图库总量（这里使用一个估算值）
-        totalLibraryCount = 10000
+        // 获取真实图库总量
+        totalLibraryCount = await fetchTotalLibraryCount()
         
         // 计算索引大小
         if let snapshot = try? await indexStore.loadSnapshot() {
@@ -220,25 +221,115 @@ class SettingsViewModel {
             indexSize = String(format: "%.1f MB", sizeInMB)
         }
         
-        // 估算缓存大小
-        cacheSize = "48 MB"
+        // 计算真实缓存大小
+        cacheSize = await calculateCacheSize()
+    }
+    
+    /// 获取系统相册图片总数
+    private func fetchTotalLibraryCount() async -> Int {
+        let accessState = await photoLibraryAssetProvider.currentAccessState()
+        guard accessState.hasReadAccess else {
+            return 0
+        }
+        
+        let options = PHFetchOptions()
+        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        let result = PHAsset.fetchAssets(with: options)
+        return result.count
+    }
+    
+    /// 计算缓存目录大小
+    private func calculateCacheSize() async -> String {
+        let cacheURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        
+        var totalSize: Int64 = 0
+        
+        if let enumerator = FileManager.default.enumerator(
+            at: cacheURL,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let fileURL as URL in enumerator {
+                if let fileSize = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                    totalSize += Int64(fileSize)
+                }
+            }
+        }
+        
+        let sizeInMB = Double(totalSize) / 1024 / 1024
+        return String(format: "%.1f MB", sizeInMB)
     }
     
     func pauseBuilding() async {
-        // TODO: 实现暂停构建
+        // IndexEngine 不支持真正的暂停，取消任务即可
+        // checkpoint 会自动保存进度，可以稍后继续
         isBuilding = false
         canResumeBuilding = true
     }
     
     func resumeBuilding() async {
-        // TODO: 实现继续构建
-        isBuilding = true
-        canResumeBuilding = false
+        do {
+            isBuilding = true
+            canResumeBuilding = false
+            
+            // 调用 IndexEngine 的 resumeBuildIfNeeded
+            _ = try await indexEngine.resumeBuildIfNeeded { [weak self] state in
+                Task { @MainActor in
+                    self?.handleBuildStateUpdate(state)
+                }
+            }
+            
+            // 刷新状态
+            await refreshStatus()
+        } catch {
+            isBuilding = false
+            canResumeBuilding = true
+        }
     }
     
     func clearCache() async {
-        // TODO: 实现清理缓存
-        cacheSize = "0 MB"
+        do {
+            // 1. 清理缓存目录
+            let cacheURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            if let enumerator = FileManager.default.enumerator(at: cacheURL, includingPropertiesForKeys: nil) {
+                for case let fileURL as URL in enumerator {
+                    try? FileManager.default.removeItem(at: fileURL)
+                }
+            }
+            
+            // 2. 清理索引
+            try await indexEngine.clearAll()
+            
+            // 3. 更新显示
+            cacheSize = "0 MB"
+            indexedCount = 0
+            indexSize = "0 MB"
+        } catch {
+            // 错误处理
+            print("清理缓存失败: \(error)")
+        }
+    }
+    
+    /// 处理构建状态更新
+    private func handleBuildStateUpdate(_ state: IndexBuildState) {
+        switch state {
+        case .building(let progress):
+            buildProgress = progress.fractionCompleted
+            completedCount = progress.completedCount
+            totalCount = progress.totalCount
+            
+        case .ready(let manifest):
+            isBuilding = false
+            canResumeBuilding = false
+            indexedCount = manifest.itemCount
+            
+        case .failed:
+            isBuilding = false
+            canResumeBuilding = true
+            
+        default:
+            break
+        }
     }
 }
 
