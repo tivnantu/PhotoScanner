@@ -415,12 +415,22 @@ struct SearchHomeView: View {
             searchFailure = nil
         }
         
-        // TODO: 实际搜索逻辑
-        // 模拟搜索延迟
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
-        
-        withAnimation(.easeInOut(duration: 0.3)) {
-            isSearching = false
+        do {
+            // 创建 ViewModel 执行搜索
+            let viewModel = TextSearchViewModel(services: services)
+            await viewModel.initialize()
+            viewModel.queryText = searchText
+            try await viewModel.performSearch()
+            
+            withAnimation(.easeInOut(duration: 0.3)) {
+                searchResults = viewModel.searchResults
+                isSearching = false
+            }
+        } catch {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                searchFailure = error.localizedDescription
+                isSearching = false
+            }
         }
     }
     
@@ -431,11 +441,34 @@ struct SearchHomeView: View {
             searchFailure = nil
         }
         
-        // TODO: 实际图片搜索逻辑
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
-        
-        withAnimation(.easeInOut(duration: 0.3)) {
-            isSearching = false
+        do {
+            // 加载图片数据
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw ImageSearchError.failedToLoadImage
+            }
+            
+            // 创建 ViewModel 执行搜索
+            let viewModel = ImageSearchViewModel(services: services)
+            await viewModel.initialize()
+            try await viewModel.searchWithImageData(data)
+            
+            // 获取搜索结果
+            if case .displaying(let results) = viewModel.state {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    imageSearchResults = results
+                    isSearching = false
+                }
+            } else if case .error(let error) = viewModel.state {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    searchFailure = error.localizedDescription
+                    isSearching = false
+                }
+            }
+        } catch {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                searchFailure = error.localizedDescription
+                isSearching = false
+            }
         }
     }
     
