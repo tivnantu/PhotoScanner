@@ -16,6 +16,11 @@ struct ContentView: View {
                     Label("文搜图", systemImage: "text.magnifyingglass")
                 }
 
+            ImageSearchView()
+                .tabItem {
+                    Label("以图搜图", systemImage: "photo.fill")
+                }
+
             SimilarityDebugView()
                 .tabItem {
                     Label("验证台", systemImage: "waveform.path.ecg")
