@@ -38,7 +38,15 @@ PhotoScanner/
 │       └── ChineseCLIPImagePreprocessor.swift # 图像 Resize + Normalize
 ├── Engine/
 │   ├── EmbeddingService.swift               # embedding 统一门面 (actor)
-│   └── SimilarityEngine.swift               # 图文相似度计算 (Sendable class)
+│   ├── SimilarityEngine.swift               # 图文相似度计算 (Sendable class)
+│   └── Indexing/
+│       ├── IndexManifest.swift              # 索引文件头 / 模型兼容性元信息
+│       ├── IndexEntry.swift                 # 单条 embedding 记录
+│       ├── IndexSnapshot.swift              # manifest + entries 聚合
+│       ├── IndexBuildState.swift            # 索引构建状态模型
+│       ├── IndexStore.swift                 # 索引持久化边界协议
+│       ├── VectorStore.swift                # 向量检索边界协议
+│       └── BruteForceVectorStore.swift      # 暴力 Top-K 检索实现
 ├── Presentation/
 │   └── SimilarityDebug/
 │       ├── SimilarityDebugView.swift        # 验证页 UI

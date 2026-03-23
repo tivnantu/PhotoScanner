@@ -23,10 +23,12 @@ struct PhotoScannerApp: App {
         let plugin = ChineseCLIPPlugin()
         let embeddingService = EmbeddingService(plugin: plugin)
         let similarityEngine = SimilarityEngine(embeddingService: embeddingService)
+        let vectorStore = BruteForceVectorStore()
 
         services = AppServices(
             embeddingService: embeddingService,
-            similarityEngine: similarityEngine
+            similarityEngine: similarityEngine,
+            vectorStore: vectorStore
         )
 
         Logger.app.info("PhotoScanner 启动")

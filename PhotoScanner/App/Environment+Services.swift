@@ -17,9 +17,11 @@ private struct ServicesKey: EnvironmentKey {
         let plugin = EmptyModelPlugin()
         let embedding = EmbeddingService(plugin: plugin)
         let similarity = SimilarityEngine(embeddingService: embedding)
+        let vectorStore = BruteForceVectorStore()
         return AppServices(
             embeddingService: embedding,
-            similarityEngine: similarity
+            similarityEngine: similarity,
+            vectorStore: vectorStore
         )
     }()
 }
