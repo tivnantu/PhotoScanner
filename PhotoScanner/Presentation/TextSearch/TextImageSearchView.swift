@@ -37,23 +37,39 @@ struct TextImageSearchView: View {
     @ViewBuilder
     private func statusSection(_ viewModel: TextImageSearchViewModel) -> some View {
         Section("索引状态") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(viewModel.statusTitle)
-                    .font(.headline)
-                Text(viewModel.statusDetail)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: viewModel.statusSystemImage)
+                    .font(.title3)
+                    .foregroundStyle(statusTint(for: viewModel.buildState))
+                    .frame(width: 24)
 
-                if case .building(let progress) = viewModel.buildState {
-                    ProgressView(value: progress.fractionCompleted)
-                    Text(String(format: "%.0f%%", progress.fractionCompleted * 100))
-                        .font(.caption)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(viewModel.statusTitle)
+                        .font(.headline)
+                    Text(viewModel.statusDetail)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
-                }
 
-                Label("当前已导入 \(viewModel.indexedCount) 张图片", systemImage: "photo.stack")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    if case .building(let progress) = viewModel.buildState {
+                        ProgressView(value: progress.fractionCompleted)
+                        Text(String(format: "%.0f%%", progress.fractionCompleted * 100))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Label("当前已导入 \(viewModel.indexedCount) 张图片", systemImage: "photo.stack")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    if let actionTitle = viewModel.statusActionTitle {
+                        Button(actionTitle) {
+                            Task {
+                                await viewModel.rebuildIndexFromImportedAssets()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
             }
             .padding(.vertical, 4)
         }
@@ -77,6 +93,16 @@ struct TextImageSearchView: View {
                 }
             }
 
+            if viewModel.canRebuildFromImportedAssets {
+                Button {
+                    Task {
+                        await viewModel.rebuildIndexFromImportedAssets()
+                    }
+                } label: {
+                    Label("使用已导入图片重新建索引", systemImage: "arrow.clockwise")
+                }
+            }
+
             Button(role: .destructive) {
                 Task {
                     await viewModel.clearIndex()
@@ -84,9 +110,9 @@ struct TextImageSearchView: View {
             } label: {
                 Label("清空本地索引与导入图片", systemImage: "trash")
             }
-            .disabled(viewModel.isBuilding && viewModel.indexedCount == 0)
+            .disabled(viewModel.isBuilding || viewModel.indexedCount == 0)
 
-            Text("当前最小闭环会把你选中的图片保存到本地索引目录，后续搜索直接读取图片向量，不会重新编码已索引图片。")
+            Text("当前会优先保存系统相册里的真实图片标识；搜索结果若能访问系统相册，会优先回填真实缩略图，否则回退到本地导入缓存。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -109,6 +135,10 @@ struct TextImageSearchView: View {
                 }
             }
 
+            Text(viewModel.searchHintText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
             Button {
                 isTextFieldFocused = false
                 Task {
@@ -121,7 +151,7 @@ struct TextImageSearchView: View {
                         ProgressView()
                             .padding(.trailing, 8)
                     }
-                    Text(viewModel.isSearching ? "搜索中..." : "开始搜索")
+                    Text(viewModel.searchButtonTitle)
                     Spacer()
                 }
             }
@@ -132,38 +162,67 @@ struct TextImageSearchView: View {
     @ViewBuilder
     private func resultsSection(_ viewModel: TextImageSearchViewModel) -> some View {
         Section("结果") {
-            if viewModel.isSearching {
-                HStack {
-                    Spacer()
-                    ProgressView("正在检索...")
-                    Spacer()
+            if let feedback = viewModel.resultsFeedback {
+                feedbackCard(feedback) {
+                    guard feedback.actionTitle != nil else { return }
+                    Task {
+                        await viewModel.retrySearch()
+                    }
                 }
-            } else if let message = viewModel.searchMessage {
-                Text(message)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else if viewModel.searchResults.isEmpty {
-                Text("建立索引后，输入一段文本开始搜索。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             } else {
+                if let summary = viewModel.resultsSummaryText {
+                    Text(summary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 ForEach(viewModel.searchResults) { result in
                     HStack(spacing: 12) {
                         preview(result.previewData)
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(result.assetLocalIdentifier)
+                            Text(result.displayTitle)
                                 .font(.subheadline)
                                 .lineLimit(1)
-                            Text("相似度：\(String(format: "%.4f", result.score))")
+                            Text("\(result.sourceLabel) · 相似度：\(String(format: "%.4f", result.score))")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
                     }
                     .padding(.vertical, 4)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func feedbackCard(_ feedback: TextImageFeedback, action: @escaping () -> Void) -> some View {
+        let tint = feedbackTint(for: feedback.tone)
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: feedback.systemImage)
+                    .font(.title3)
+                    .foregroundStyle(tint)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(feedback.title)
+                        .font(.headline)
+                    Text(feedback.detail)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let actionTitle = feedback.actionTitle {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.borderedProminent)
+                    .tint(tint)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder
@@ -192,20 +251,54 @@ struct TextImageSearchView: View {
         guard !items.isEmpty else { return }
 
         do {
-            var images: [Data] = []
-            images.reserveCapacity(items.count)
+            var inputs: [IndexedAssetInput] = []
+            inputs.reserveCapacity(items.count)
 
             for item in items {
                 if let data = try await item.loadTransferable(type: Data.self) {
-                    images.append(data)
+                    inputs.append(
+                        try IndexedAssetInput(
+                            assetLocalIdentifier: item.itemIdentifier,
+                            imageData: data
+                        )
+                    )
                 }
             }
 
-            await viewModel.handlePickedImages(images)
-        } catch {
-            await MainActor.run {
-                viewModel.buildState = .failed(message: error.localizedDescription)
+            if inputs.isEmpty {
+                await viewModel.presentImportFailure(PSError.invalidInput("未读取到可用图片，请重新选择"))
+                return
             }
+
+            await viewModel.handlePickedAssets(inputs)
+        } catch {
+            await viewModel.presentImportFailure(error)
+        }
+    }
+
+    private func statusTint(for buildState: IndexBuildState) -> Color {
+        switch buildState {
+        case .idle:
+            return .secondary
+        case .preparing, .building:
+            return .accentColor
+        case .ready:
+            return .green
+        case .failed:
+            return .orange
+        }
+    }
+
+    private func feedbackTint(for tone: TextImageFeedbackTone) -> Color {
+        switch tone {
+        case .neutral:
+            return .secondary
+        case .info:
+            return .accentColor
+        case .warning:
+            return .orange
+        case .error:
+            return .red
         }
     }
 }
