@@ -9,10 +9,17 @@ struct SearchHomeView: View {
     @State private var selectedPickerItem: PhotosPickerItem?
     @State private var searchHistory: [String] = []
     @State private var showClearHistoryAlert: Bool = false
-    @Namespace private var searchTransition
+    @State private var currentPlaceholderIndex: Int = 0
     
-    // 高频搜索建议
-    private let searchSuggestions: [String] = ["海边日落", "宠物", "笑容"]
+    // placeholder 轮换列表
+    private let placeholders: [String] = [
+        "海边日落",
+        "宠物",
+        "笑容",
+        "城市夜景",
+        "美食",
+        "旅行风景"
+    ]
     
     var body: some View {
         NavigationStack {
@@ -42,13 +49,24 @@ struct SearchHomeView: View {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
                         
-                        TextField("输入描述搜索图片...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .onSubmit {
-                                if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-                                    saveSearchAndNavigate()
-                                }
+                        ZStack(alignment: .leading) {
+                            // 显示当前 placeholder
+                            if searchText.isEmpty {
+                                Text(placeholders[currentPlaceholderIndex])
+                                    .foregroundStyle(.tertiary)
+                                    .font(.body)
+                                    .transition(.opacity)
+                                    .id(currentPlaceholderIndex)
                             }
+                            
+                            TextField("", text: $searchText)
+                                .textFieldStyle(.plain)
+                                .onSubmit {
+                                    if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                                        saveSearchAndNavigate()
+                                    }
+                                }
+                        }
                         
                         if !searchText.isEmpty {
                             Button(action: { searchText = "" }) {
@@ -61,93 +79,65 @@ struct SearchHomeView: View {
                     .padding(.vertical, 12)
                     .background(Color(.systemGray6))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .matchedGeometryEffect(id: "searchBar", in: searchTransition)
                     
                     // 图片搜索按钮
                     PhotosPicker(selection: $selectedPickerItem, matching: .images) {
                         Image(systemName: "camera.fill")
                             .font(.title3)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.primary)
                             .frame(width: 44, height: 44)
-                            .background(Color.blue)
+                            .background(Color(.systemGray5))
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                 }
                 .padding(.horizontal, 20)
                 
-                // 搜索建议和历史
-                VStack(alignment: .leading, spacing: 12) {
-                    // 高频搜索建议
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("推荐搜索")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
+                // 搜索历史
+                if !searchHistory.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("搜索历史")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                            
+                            Spacer()
+                            
+                            Button("清除") {
+                                showClearHistoryAlert = true
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        }
                         
-                        HStack(spacing: 8) {
-                            ForEach(searchSuggestions, id: \.self) { suggestion in
+                        FlowLayout(spacing: 8) {
+                            ForEach(searchHistory, id: \.self) { query in
                                 Button(action: {
-                                    searchText = suggestion
+                                    searchText = query
                                     saveSearchAndNavigate()
                                 }) {
-                                    Text(suggestion)
-                                        .font(.subheadline)
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 8)
-                                        .background(Color.blue.opacity(0.1))
-                                        .foregroundStyle(.blue)
-                                        .clipShape(Capsule())
-                                }
-                            }
-                        }
-                    }
-                    
-                    // 搜索历史
-                    if !searchHistory.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("搜索历史")
-                                    .font(.headline)
-                                    .foregroundStyle(.secondary)
-                                
-                                Spacer()
-                                
-                                Button("清除") {
-                                    showClearHistoryAlert = true
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                            }
-                            
-                            FlowLayout(spacing: 8) {
-                                ForEach(searchHistory, id: \.self) { query in
-                                    Button(action: {
-                                        searchText = query
-                                        saveSearchAndNavigate()
-                                    }) {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "clock.arrow.circlepath")
-                                                .font(.caption2)
-                                            
-                                            Text(query)
-                                                .font(.subheadline)
-                                        }
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .background(.ultraThinMaterial)
-                                        .clipShape(Capsule())
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "clock.arrow.circlepath")
+                                            .font(.caption2)
+                                        
+                                        Text(query)
+                                            .font(.subheadline)
                                     }
-                                    .foregroundStyle(.primary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Capsule())
                                 }
+                                .foregroundStyle(.primary)
                             }
                         }
                     }
+                    .padding(.horizontal, 20)
                 }
-                .padding(.horizontal, 20)
                 
                 Spacer()
             }
             .navigationDestination(isPresented: $showTextSearch) {
-                TextSearchResultsView(initialQuery: searchText, namespace: searchTransition)
+                TextSearchResultsView(initialQuery: searchText)
             }
             .navigationDestination(isPresented: $showImageSearch) {
                 ImageSearchView()
@@ -161,6 +151,7 @@ struct SearchHomeView: View {
             }
             .task {
                 await loadSearchHistory()
+                startPlaceholderRotation()
             }
             .alert("清除搜索历史", isPresented: $showClearHistoryAlert) {
                 Button("取消", role: .cancel) {}
@@ -195,6 +186,14 @@ struct SearchHomeView: View {
     private func clearSearchHistory() async {
         await SearchHistoryManager.shared.clearHistory()
         searchHistory = []
+    }
+    
+    private func startPlaceholderRotation() {
+        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+            withAnimation(.easeInOut(duration: 0.5)) {
+                currentPlaceholderIndex = (currentPlaceholderIndex + 1) % placeholders.count
+            }
+        }
     }
 }
 

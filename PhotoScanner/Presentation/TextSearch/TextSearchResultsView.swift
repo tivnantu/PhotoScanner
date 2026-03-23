@@ -8,12 +8,6 @@ struct TextSearchResultsView: View {
     @FocusState private var isSearchFieldFocused: Bool
     
     let initialQuery: String
-    var namespace: Namespace.ID
-    
-    init(initialQuery: String, namespace: Namespace.ID) {
-        self.initialQuery = initialQuery
-        self.namespace = namespace
-    }
     
     var body: some View {
         Group {
@@ -98,7 +92,6 @@ struct TextSearchResultsView: View {
             .padding(.vertical, 10)
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 10))
-            .matchedGeometryEffect(id: "searchBar", in: namespace)
             
             Button("取消") {
                 queryText = ""
@@ -132,7 +125,7 @@ struct TextSearchResultsView: View {
                         GridItem(.flexible()),
                         GridItem(.flexible())
                     ],
-                    spacing: 8
+                    spacing: 4
                 ) {
                     ForEach(viewModel.searchResults) { result in
                         TextSearchResultCell(result: result)
@@ -237,16 +230,8 @@ struct TextSearchResultCell: View {
     }
 }
 
-struct TextSearchResultsViewPreview: View {
-    @Namespace var namespace
-    
-    var body: some View {
-        NavigationStack {
-            TextSearchResultsView(initialQuery: "风景", namespace: namespace)
-        }
-    }
-}
-
 #Preview {
-    TextSearchResultsViewPreview()
+    NavigationStack {
+        TextSearchResultsView(initialQuery: "风景")
+    }
 }

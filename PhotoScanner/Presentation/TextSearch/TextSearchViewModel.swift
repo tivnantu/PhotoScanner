@@ -347,7 +347,12 @@ final class TextSearchViewModel {
             Logger.search.info(
                 "开始回填搜索结果，查询: \(query)，已导入 \(self.indexedCount) 张，系统相册绑定 \(self.photoLibraryBackedCount) 张"
             )
-            let results = try await searchEngine.search(text: query, topK: 12)
+            // 获取更多候选结果，然后智能过滤
+            let allResults = try await searchEngine.search(text: query, topK: 30)
+            
+            // 智能过滤：根据相似度决定展示数量
+            let results = smartFilterResults(allResults)
+            
             let previewStartedAt = ContinuousClock.now
             var viewData: [TextSearchResultItem] = []
             var photoLibraryResolvedCount = 0
@@ -385,6 +390,30 @@ final class TextSearchViewModel {
 
         await refreshPerformanceMetrics()
         isSearching = false
+    }
+    
+    /// 智能过滤搜索结果
+    private func smartFilterResults(_ results: [VectorSearchResult]) -> [VectorSearchResult] {
+        guard !results.isEmpty else { return [] }
+        
+        // 规则：
+        // 1. 相似度 >= 0.8：全部展示（最多25张）
+        // 2. 相似度 >= 0.6：展示前20张
+        // 3. 相似度 < 0.6：展示前15张
+        
+        let highSimilarityResults = results.filter { $0.score >= 0.8 }
+        
+        if !highSimilarityResults.isEmpty {
+            // 有高相似度结果，展示所有 >= 0.6 的结果，最多25张
+            let qualified = results.filter { $0.score >= 0.6 }
+            return Array(qualified.prefix(25))
+        } else if results.first?.score ?? 0 >= 0.6 {
+            // 中等相似度，展示前20张
+            return Array(results.prefix(20))
+        } else {
+            // 低相似度，展示前15张
+            return Array(results.prefix(15))
+        }
     }
 
     func retrySearch() async {

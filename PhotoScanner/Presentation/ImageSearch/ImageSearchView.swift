@@ -173,7 +173,7 @@ extension ImageSearchView {
                     GridItem(.flexible()),
                     GridItem(.flexible())
                 ],
-                spacing: 8
+                spacing: 4
             ) {
                 ForEach(results) { result in
                     ResultCell(result: result)
