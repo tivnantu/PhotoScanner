@@ -47,14 +47,32 @@ struct TextSearchResultsView: View {
             
             // 内容区域
             if viewModel.isSearching {
-                ProgressView("搜索中...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    
+                    Text("正在搜索...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let failure = viewModel.searchFailure {
                 errorView(failure, viewModel)
-            } else if viewModel.searchResults.isEmpty {
+            } else if viewModel.searchResults.isEmpty && viewModel.hasAttemptedSearch {
                 emptyView()
-            } else {
+            } else if !viewModel.searchResults.isEmpty {
                 resultsView(viewModel)
+            } else {
+                // 初始加载态
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    
+                    Text("准备搜索...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }

@@ -128,35 +128,59 @@ extension ImageSearchView {
             EmptyView()
             
         case .selectingImage:
-            HStack {
+            VStack(spacing: 16) {
                 ProgressView()
+                    .scaleEffect(1.2)
+                
                 Text("选择图片中...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
             
         case .embedding:
-            HStack {
+            VStack(spacing: 16) {
                 ProgressView()
+                    .scaleEffect(1.2)
+                
                 Text("分析图片中...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
             
         case .searching:
-            HStack {
+            VStack(spacing: 16) {
                 ProgressView()
+                    .scaleEffect(1.2)
+                
                 Text("搜索相似图片...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
             
         case .displaying(let results):
             Text("找到 \(results.count) 张相似图片")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .padding(.vertical, 8)
             
         case .error(let error):
-            HStack {
+            VStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
+                    .font(.title2)
                     .foregroundStyle(.red)
+                
                 Text(error.localizedDescription)
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
+            .padding()
         }
     }
 }

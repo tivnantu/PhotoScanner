@@ -11,7 +11,10 @@ struct ToolsView: View {
                         ToolCard(
                             title: "文图相似度",
                             icon: "text.below.photo",
-                            gradient: Gradient(colors: [Color(hex: "667eea"), Color(hex: "764ba2")])
+                            gradient: Gradient(colors: [
+                                Color(red: 155/255, green: 142/255, blue: 212/255),
+                                Color(red: 180/255, green: 158/255, blue: 217/255)
+                            ])
                         ) {
                             // TODO: 导航到文图相似度页面
                         }
@@ -19,7 +22,10 @@ struct ToolsView: View {
                         ToolCard(
                             title: "图图相似度",
                             icon: "photo.on.rectangle",
-                            gradient: Gradient(colors: [Color(hex: "f093fb"), Color(hex: "f5576c")])
+                            gradient: Gradient(colors: [
+                                Color(red: 212/255, green: 165/255, blue: 176/255),
+                                Color(red: 201/255, green: 160/255, blue: 176/255)
+                            ])
                         ) {
                             // TODO: 导航到图图相似度页面
                         }
@@ -29,7 +35,10 @@ struct ToolsView: View {
                     ToolCard(
                         title: "相似图片聚类",
                         icon: "square.grid.3x3.fill",
-                        gradient: Gradient(colors: [Color(hex: "4facfe"), Color(hex: "00f2fe")])
+                        gradient: Gradient(colors: [
+                            Color(red: 138/255, green: 180/255, blue: 217/255),
+                            Color(red: 160/255, green: 196/255, blue: 227/255)
+                        ])
                     ) {
                         // TODO: 导航到相似图片聚类页面
                     }
@@ -53,7 +62,7 @@ struct ToolCard: View {
         Button(action: action) {
             VStack(spacing: 16) {
                 Image(systemName: icon)
-                    .font(.system(size: 40))
+                    .font(.system(size: 36))
                     .foregroundStyle(.white)
                 
                 Text(title)
@@ -61,7 +70,7 @@ struct ToolCard: View {
                     .foregroundStyle(.white)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 140)
+            .frame(height: 160)
             .background(
                 LinearGradient(
                     gradient: gradient,
@@ -70,37 +79,8 @@ struct ToolCard: View {
                 )
             )
             .clipShape(RoundedRectangle(cornerRadius: 20))
-            .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+            .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
         }
-    }
-}
-
-// MARK: - Color Extension
-
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (255, 0, 0, 0)
-        }
-        
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: Double(a) / 255
-        )
     }
 }
 
