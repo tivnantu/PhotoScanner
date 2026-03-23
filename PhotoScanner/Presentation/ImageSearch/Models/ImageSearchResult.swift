@@ -2,11 +2,15 @@ import SwiftUI
 import Photos
 
 /// 图搜图搜索结果
-struct ImageSearchResult: Identifiable {
+struct ImageSearchResult: Identifiable, Equatable {
     let id: String              // Asset ID
     let thumbnail: UIImage      // 缩略图
     let similarity: Float       // 相似度 [0, 1]
     let asset: PHAsset          // 原始资产
+    
+    static func == (lhs: ImageSearchResult, rhs: ImageSearchResult) -> Bool {
+        lhs.id == rhs.id && lhs.similarity == rhs.similarity
+    }
 }
 
 /// 图搜图状态
