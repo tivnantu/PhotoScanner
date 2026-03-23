@@ -38,6 +38,10 @@ actor EmbeddingService {
         return false
     }
 
+    var modelDescriptor: ModelDescriptor {
+        plugin.descriptor
+    }
+
     // MARK: - 初始化
 
     init(plugin: ModelPlugin) {

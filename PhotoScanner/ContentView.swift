@@ -3,14 +3,24 @@
 // PhotoScanner
 //
 // 应用首页。
-// 第一阶段直接展示验证页，后续阶段替换为正式产品 Tab 结构。
+// 当前阶段以最小文搜图为主入口，同时保留相似度验证页作为内部调试台。
 //
 
 import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        SimilarityDebugView()
+        TabView {
+            TextImageSearchView()
+                .tabItem {
+                    Label("文搜图", systemImage: "text.magnifyingglass")
+                }
+
+            SimilarityDebugView()
+                .tabItem {
+                    Label("验证台", systemImage: "waveform.path.ecg")
+                }
+        }
     }
 }
 

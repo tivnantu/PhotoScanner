@@ -17,11 +17,29 @@ private struct ServicesKey: EnvironmentKey {
         let plugin = EmptyModelPlugin()
         let embedding = EmbeddingService(plugin: plugin)
         let similarity = SimilarityEngine(embeddingService: embedding)
-        let vectorStore = BruteForceVectorStore()
+        let indexStore = DiskBackedIndexStore(
+            rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+                "PhotoScannerPreviewIndex",
+                isDirectory: true
+            )
+        )
+        let vectorStore = MMapBruteForceVectorStore(indexStore: indexStore)
+        let indexEngine = IndexEngine(
+            embeddingService: embedding,
+            indexStore: indexStore,
+            vectorStore: vectorStore
+        )
+        let searchEngine = SearchEngine(
+            embeddingService: embedding,
+            vectorStore: vectorStore
+        )
         return AppServices(
             embeddingService: embedding,
             similarityEngine: similarity,
-            vectorStore: vectorStore
+            indexStore: indexStore,
+            vectorStore: vectorStore,
+            indexEngine: indexEngine,
+            searchEngine: searchEngine
         )
     }()
 }

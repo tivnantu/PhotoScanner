@@ -19,16 +19,28 @@ struct PhotoScannerApp: App {
     // MARK: - 初始化（Composition Root）
 
     init() {
-        // 组装 Plugin → Engine → Services
         let plugin = ChineseCLIPPlugin()
         let embeddingService = EmbeddingService(plugin: plugin)
         let similarityEngine = SimilarityEngine(embeddingService: embeddingService)
-        let vectorStore = BruteForceVectorStore()
+        let indexStore = DiskBackedIndexStore()
+        let vectorStore = MMapBruteForceVectorStore(indexStore: indexStore)
+        let indexEngine = IndexEngine(
+            embeddingService: embeddingService,
+            indexStore: indexStore,
+            vectorStore: vectorStore
+        )
+        let searchEngine = SearchEngine(
+            embeddingService: embeddingService,
+            vectorStore: vectorStore
+        )
 
         services = AppServices(
             embeddingService: embeddingService,
             similarityEngine: similarityEngine,
-            vectorStore: vectorStore
+            indexStore: indexStore,
+            vectorStore: vectorStore,
+            indexEngine: indexEngine,
+            searchEngine: searchEngine
         )
 
         Logger.app.info("PhotoScanner 启动")

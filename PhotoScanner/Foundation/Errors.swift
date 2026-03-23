@@ -46,6 +46,9 @@ enum PSError: Error, Equatable {
     /// 找到资源但无法读取
     case resourceUnreadable(path: String, reason: String)
 
+    /// 存储文件结构损坏或内容非法
+    case storageCorrupted(String)
+
     // MARK: - 通用
 
     /// 未知错误（附带说明）
@@ -78,6 +81,8 @@ extension PSError: LocalizedError {
             return "资源未找到: \(name).\(ext)"
         case .resourceUnreadable(let path, let reason):
             return "资源不可读: \(path)（\(reason)）"
+        case .storageCorrupted(let detail):
+            return "存储数据损坏: \(detail)"
         case .unknown(let detail):
             return "未知错误: \(detail)"
         }

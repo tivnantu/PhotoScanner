@@ -19,6 +19,15 @@ struct AppServices {
     /// 相似度引擎（图文相似度计算）
     let similarityEngine: SimilarityEngine
 
-    /// 向量检索存储（最小 Top-K 检索）
+    /// 磁盘索引存储
+    let indexStore: DiskBackedIndexStore
+
+    /// 向量检索存储（当前为 mmap 精确检索）
     let vectorStore: any VectorStore
+
+    /// 索引构建引擎
+    let indexEngine: IndexEngine
+
+    /// 文搜图搜索引擎
+    let searchEngine: SearchEngine
 }
