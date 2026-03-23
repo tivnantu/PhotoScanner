@@ -9,7 +9,9 @@ struct TextSearchView: View {
     @State private var viewModel: TextSearchViewModel?
     @State private var pickerItems: [PhotosPickerItem] = []
     @FocusState private var isTextFieldFocused: Bool
-
+    
+    var initialQuery: String = ""
+    
     var body: some View {
         NavigationStack {
             Group {
@@ -32,6 +34,11 @@ struct TextSearchView: View {
                 let nextViewModel = TextSearchViewModel(services: services)
                 viewModel = nextViewModel
                 await nextViewModel.initialize()
+                
+                // 设置初始查询
+                if !initialQuery.isEmpty {
+                    nextViewModel.queryText = initialQuery
+                }
             }
         }
     }

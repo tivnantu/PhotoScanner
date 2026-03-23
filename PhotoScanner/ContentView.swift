@@ -3,7 +3,7 @@
 // PhotoScanner
 //
 // 应用首页。
-// 文搜图和以图搜图作为核心功能入口。
+// 三个主标签页：搜索、工具、设置。
 //
 
 import SwiftUI
@@ -11,14 +11,19 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         TabView {
-            TextSearchView()
+            SearchHomeView()
                 .tabItem {
-                    Label("文搜图", systemImage: "text.magnifyingglass")
+                    Label("搜索", systemImage: "magnifyingglass")
                 }
 
-            ImageSearchView()
+            ToolsView()
                 .tabItem {
-                    Label("以图搜图", systemImage: "photo.fill")
+                    Label("工具", systemImage: "square.grid.2x2.fill")
+                }
+
+            SettingsView()
+                .tabItem {
+                    Label("设置", systemImage: "gearshape.fill")
                 }
         }
     }
