@@ -2,7 +2,7 @@
 // SimilarityClusteringView.swift
 // PhotoScanner
 //
-// 相似聚类功能页面
+// 相似聚类功能页面（使用 DBSCAN 算法）
 //
 
 import SwiftUI
@@ -20,8 +20,8 @@ struct SimilarityClusteringView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                // 参数设置区域
-                parameterSection
+                // 阈值预设选择
+                presetSection
                 
                 // 开始聚类按钮
                 clusterButton
@@ -35,59 +35,48 @@ struct SimilarityClusteringView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
     
-    // MARK: - 参数设置区域
+    // MARK: - 阈值预设选择
     
     @ViewBuilder
-    private var parameterSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("聚类参数")
+    private var presetSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("聚类模式")
                 .font(.headline)
             
-            // 相似度阈值
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("相似度阈值")
-                        .font(.subheadline)
-                    
-                    Spacer()
-                    
-                    Text(String(format: "%.2f", viewModel.similarityThreshold))
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.purple)
+            // 五档选择器
+            HStack(spacing: 8) {
+                ForEach(ClusteringPreset.allCases) { preset in
+                    Button(action: {
+                        viewModel.selectedPreset = preset
+                    }) {
+                        VStack(spacing: 6) {
+                            Text(preset.rawValue)
+                                .font(.caption)
+                                .fontWeight(viewModel.selectedPreset == preset ? .semibold : .regular)
+                                .foregroundStyle(viewModel.selectedPreset == preset ? .white : .primary)
+                            
+                            Text(String(format: "%.0f%%", preset.threshold * 100))
+                                .font(.caption2)
+                                .foregroundStyle(viewModel.selectedPreset == preset ? .white.opacity(0.8) : .secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            viewModel.selectedPreset == preset
+                                ? Color.blue
+                                : Color(.systemGray6)
+                        )
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
                 }
-                
-                Slider(value: $viewModel.similarityThreshold, in: 0.5...1.0, step: 0.05)
-                    .tint(.purple)
-                
-                Text("相似度 ≥ \(String(format: "%.2f", viewModel.similarityThreshold)) 的图片会被分为一组")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             
-            Divider()
-            
-            // 最小簇大小
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("最小簇大小")
-                        .font(.subheadline)
-                    
-                    Spacer()
-                    
-                    Text("\(viewModel.minClusterSize) 张")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.purple)
-                }
-                
-                Stepper("", value: $viewModel.minClusterSize, in: 2...10)
-                    .labelsHidden()
-                
-                Text("少于 \(viewModel.minClusterSize) 张的组将被过滤")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            // 描述文字
+            Text(viewModel.selectedPreset.description)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding()
         .background(Color(.systemGray6))
@@ -104,22 +93,27 @@ struct SimilarityClusteringView: View {
             }
         }) {
             HStack {
-                if case .loading = viewModel.state {
+                if case .loading(let progress) = viewModel.state {
                     ProgressView()
                         .tint(.white)
+                    Text(progress)
+                        .font(.subheadline)
                 } else {
                     Image(systemName: "square.grid.3x3.fill")
+                    Text("开始聚类")
+                        .fontWeight(.semibold)
                 }
-                
-                Text("开始聚类")
-                    .fontWeight(.semibold)
             }
             .frame(maxWidth: .infinity)
             .padding()
-            .background(Color.purple)
+            .background(Color.blue)
             .foregroundStyle(.white)
             .cornerRadius(12)
         }
+        .disabled({
+            if case .loading = viewModel.state { return true }
+            return false
+        }())
     }
     
     // MARK: - 结果显示
@@ -133,7 +127,7 @@ struct SimilarityClusteringView: View {
                     .font(.system(size: 48))
                     .foregroundStyle(.secondary)
                 
-                Text("调整参数后点击「开始聚类」")
+                Text("选择聚类模式后点击「开始聚类」")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -141,13 +135,7 @@ struct SimilarityClusteringView: View {
             .frame(maxWidth: .infinity)
             
         case .loading:
-            VStack(spacing: 12) {
-                ProgressView()
-                Text("正在分析图片相似性...")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
+            EmptyView() // 按钮上显示进度
             
         case .loaded(let clusters):
             if clusters.isEmpty {
@@ -159,7 +147,7 @@ struct SimilarityClusteringView: View {
                     Text("未找到相似图片组")
                         .font(.headline)
                     
-                    Text("尝试降低相似度阈值")
+                    Text("尝试选择「更宽容」模式")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -179,10 +167,14 @@ struct SimilarityClusteringView: View {
                             viewModel.reset()
                         }
                         .font(.subheadline)
+                        .foregroundStyle(.blue)
                     }
                     
                     ForEach(clusters) { cluster in
-                        ClusterCard(cluster: cluster)
+                        ClusterCard(
+                            cluster: cluster,
+                            thumbnail: viewModel.thumbnail(for: cluster.centerAssetId ?? "")
+                        )
                     }
                 }
             }
@@ -206,6 +198,7 @@ struct SimilarityClusteringView: View {
                     viewModel.reset()
                 }
                 .font(.subheadline)
+                .foregroundStyle(.blue)
             }
             .padding()
             .frame(maxWidth: .infinity)
@@ -219,28 +212,52 @@ struct SimilarityClusteringView: View {
 
 struct ClusterCard: View {
     let cluster: PhotoCluster
+    let thumbnail: UIImage?
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("\(cluster.assetIds.count) 张相似图片")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                
-                Spacer()
-                
-                Text(String(format: "相似度 %.0f%%", cluster.similarityScore * 100))
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.purple.opacity(0.2))
-                    .foregroundStyle(.purple)
-                    .cornerRadius(4)
+        HStack(spacing: 12) {
+            // 缩略图
+            if let thumbnail = thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 60, height: 60)
+                    .clipped()
+                    .cornerRadius(8)
+            } else {
+                ZStack {
+                    Color(.systemGray5)
+                        .frame(width: 60, height: 60)
+                        .cornerRadius(8)
+                    
+                    Image(systemName: "photo")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.secondary)
+                }
             }
             
-            Text("ID: \(cluster.assetIds.prefix(3).joined(separator: ", "))...")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            // 信息
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("\(cluster.assetIds.count) 张相似图片")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    
+                    Spacer()
+                    
+                    Text(String(format: "%.0f%%", cluster.similarityScore * 100))
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.blue.opacity(0.15))
+                        .foregroundStyle(.blue)
+                        .cornerRadius(4)
+                }
+                
+                Text("聚类中心代表")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding()
         .background(Color(.systemGray6))
