@@ -143,19 +143,25 @@ struct ImageImageSimilarityView: View {
             }
         }) {
             HStack {
-                if case .loading = viewModel.state {
+                if case .initializing = viewModel.state {
                     ProgressView()
                         .tint(.white)
+                    Text("初始化服务...")
+                        .font(.subheadline)
+                } else if case .loading = viewModel.state {
+                    ProgressView()
+                        .tint(.white)
+                    Text("计算中...")
+                        .font(.subheadline)
                 } else {
                     Image(systemName: "waveform.path")
+                    Text("计算相似度")
+                        .fontWeight(.semibold)
                 }
-                
-                Text("计算相似度")
-                    .fontWeight(.semibold)
             }
             .frame(maxWidth: .infinity)
             .padding()
-            .background(Color.orange)
+            .background(Color.blue)
             .foregroundStyle(.white)
             .cornerRadius(12)
         }
@@ -170,6 +176,9 @@ struct ImageImageSimilarityView: View {
         switch viewModel.state {
         case .idle:
             EmptyView()
+            
+        case .initializing:
+            EmptyView() // 按钮上显示初始化状态
             
         case .loading:
             VStack(spacing: 12) {
@@ -186,14 +195,14 @@ struct ImageImageSimilarityView: View {
                 ZStack {
                     Circle()
                         .stroke(
-                            Color.orange.opacity(0.2),
+                            Color.blue.opacity(0.2),
                             lineWidth: 12
                         )
                     
                     Circle()
                         .trim(from: 0, to: CGFloat(max(0, similarity)))
                         .stroke(
-                            Color.orange,
+                            Color.blue,
                             style: StrokeStyle(lineWidth: 12, lineCap: .round)
                         )
                         .rotationEffect(.degrees(-90))

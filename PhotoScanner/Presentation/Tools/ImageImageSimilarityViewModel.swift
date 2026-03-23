@@ -21,6 +21,7 @@ final class ImageImageSimilarityViewModel {
     
     enum State {
         case idle
+        case initializing
         case loading
         case loaded(similarity: Float)
         case error(String)
@@ -42,6 +43,18 @@ final class ImageImageSimilarityViewModel {
     
     /// 计算相似度
     func computeSimilarity() async {
+        // 初始化服务
+        let isReady = await embeddingService.isReady
+        if !isReady {
+            state = .initializing
+            do {
+                try await embeddingService.initialize()
+            } catch {
+                state = .error("服务初始化失败：\(error.localizedDescription)")
+                return
+            }
+        }
+        
         // 验证输入
         guard let image1 = selectedImage1 else {
             state = .error("请先选择第一张图片")

@@ -127,15 +127,21 @@ struct TextImageSimilarityView: View {
             }
         }) {
             HStack {
-                if case .loading = viewModel.state {
+                if case .initializing = viewModel.state {
                     ProgressView()
                         .tint(.white)
+                    Text("初始化服务...")
+                        .font(.subheadline)
+                } else if case .loading = viewModel.state {
+                    ProgressView()
+                        .tint(.white)
+                    Text("计算中...")
+                        .font(.subheadline)
                 } else {
                     Image(systemName: "waveform.path")
+                    Text("计算相似度")
+                        .fontWeight(.semibold)
                 }
-                
-                Text("计算相似度")
-                    .fontWeight(.semibold)
             }
             .frame(maxWidth: .infinity)
             .padding()
@@ -154,6 +160,9 @@ struct TextImageSimilarityView: View {
         switch viewModel.state {
         case .idle:
             EmptyView()
+            
+        case .initializing:
+            EmptyView() // 按钮上显示初始化状态
             
         case .loading:
             VStack(spacing: 12) {
