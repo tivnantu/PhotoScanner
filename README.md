@@ -2,38 +2,99 @@
 
 基于 Chinese-CLIP 的本地照片智能检索 iOS App。在设备端运行图文双塔模型，支持用中文描述搜索手机相册中的照片。
 
-## 做什么
+## 特性
 
-- **文搜图**：输入中文文本，从相册中找到语义匹配的照片
-- **图搜图**：选择一张照片，找到视觉相似的其他照片
-- **全部本地**：模型推理和向量检索均在设备端完成，照片不出手机
+- **文搜图** — 输入中文文本，从相册中找到语义匹配的照片
+- **图搜图** — 选择一张照片，找到视觉相似的其他照片
+- **图文相似度** — 计算图片与文本的语义匹配分数
+- **高性能** — 搜索延迟 ~45ms (P95)
+- **端侧推理** — 无需网络，隐私优先
 
-## 用了什么
+## 系统要求
+
+- iOS 26.0+
+- iPhone 14 Pro 或更高（目标设备）
+- 真机运行（使用 Photos 等真机专属框架，不支持 Simulator）
+
+## 技术栈
 
 | 技术 | 说明 |
 |------|------|
 | **Chinese-CLIP ViT-B/16** | 中文图文跨模态预训练模型，双塔 ONNX 格式 |
 | **ONNX Runtime Mobile** | iOS 端模型推理运行时 |
-| **SwiftUI** | 界面框架，iOS 26+ |
-| **Swift Concurrency** | actor 隔离 + async/await 并发模型 |
+| **SwiftUI** | 界面框架 |
+| **Swift 6 Concurrency** | actor 隔离 + async/await 并发模型 |
+
+## 快速开始
+
+```bash
+git clone <repository-url>
+cd PhotoScanner
+git lfs install && git lfs pull
+open PhotoScanner.xcodeproj
+```
+
+使用 Xcode 26+ 构建并运行到真机 (⌘+R)。
+
+> ⚠️ 本项目使用 Photos 框架，不支持 iOS Simulator。必须使用真机构建和运行。
+
+## 项目结构
+
+```
+PhotoScanner/
+├── PhotoScanner/           # 源码
+│   ├── Foundation/         # 基础类型和配置
+│   ├── Engine/             # 核心业务逻辑
+│   ├── Infrastructure/     # 技术基础设施
+│   ├── Presentation/       # UI 层
+│   └── Plugin/             # AI 模型插件
+├── docs/
+│   ├── context/            # 系统知识
+│   └── topics/             # 开发活动
+└── .codebuddy/             # AI 工具链
+```
 
 ## 架构
 
-四层单向依赖：`Presentation → Engine → Plugin → Foundation`
+五层单向依赖：
 
-- **Plugin** 封装模型细节（ONNX / CoreML），通过 `ModelPlugin` 协议暴露能力
-- **Engine** 提供业务门面（embedding、相似度），不知道底层实现
-- 详见 [`docs/context/ARCHITECTURE.md`](docs/context/ARCHITECTURE.md)
+```
+Presentation → Engine → Foundation ← Infrastructure ← Plugin
+```
 
-## 构建
+- **Foundation** — 基础类型（Embedding, Errors, Logger, 相似度计算）
+- **Engine** — 核心业务逻辑（索引构建、搜索执行）
+- **Infrastructure** — 技术基础设施（缓存、监控、调试工具）
+- **Presentation** — UI 展示（Views, ViewModels）
+- **Plugin** — AI 模型插件（ChineseCLIP*）
 
-- Xcode 26.0+，iOS 26.0+
-- 真机构建（模型文件约 726MB，通过 Git LFS 管理）
+详见 [`docs/context/ARCHITECTURE.md`](docs/context/ARCHITECTURE.md)
 
-## 项目知识
+## 性能指标
 
-工程细节、模型参数、数据链路与 Baseline Test 说明等沉淀在 [`docs/context/`](docs/context/) 目录：
+| 指标 | 数值 |
+|------|------|
+| 搜索延迟 (P95) | ~45ms |
+| 索引速度 | ~10 张/s |
+| 预处理时间 | ~5ms |
+| Embedding 维度 | 768 |
 
-- 架构设计：[`docs/context/ARCHITECTURE.md`](docs/context/ARCHITECTURE.md)
-- 模型参数：[`docs/context/MODEL_SPECS.md`](docs/context/MODEL_SPECS.md)
-- Baseline Test：[`docs/context/BASELINE_TESTS.md`](docs/context/BASELINE_TESTS.md)
+## 文档
+
+- [AGENTS.md](AGENTS.md) — AI 编码助手操作手册
+- [CONTRIBUTING.md](CONTRIBUTING.md) — 贡献指南
+- [docs/context/](docs/context) — 系统知识（架构、数据流、术语表）
+- [docs/topics/](docs/topics) — 开发活动（性能、准确度、功能、工程、UI）
+
+## 贡献
+
+欢迎贡献！请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 致谢
+
+- [Chinese-CLIP](https://github.com/OFA-Sys/Chinese-CLIP) — 中文图文预训练模型
+- [ONNX Runtime](https://onnxruntime.ai/) — 推理引擎
+
+## 许可证
+
+[MIT](LICENSE)

@@ -1,0 +1,76 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-03-24T10:00:00.000Z
+provider: 
+---
+
+# PhotoScanner 文档层级体系规范
+
+> 五层级文档体系的核心原则和红线。
+> 详细模板和完整示例 → `use_skill project-knowledge` 后读相关文档
+
+---
+
+## 五层级定位
+
+```
+README.md           → 对外：项目简介（What is this project?）
+AGENTS.md           → 对 AI：编码原则（How to code?）
+docs/context/       → 系统知识：系统现在是什么样（What is the system now?）
+docs/topics/        → 开发活动：我们做了什么（What did we do?）
+代码                → 具体实现：真实的系统状态（最权威）
+```
+
+## 各层级职责边界
+
+| 层级 | 记录什么 | 禁止什么 |
+|------|---------|---------|
+| README.md | 项目简介、特性、性能指标 | ❌ 实现细节、开发历史、内部决策 |
+| AGENTS.md | 编码原则、易错点、快速导航 | ❌ 通用 Swift 知识、项目历史 |
+| docs/context/ | 系统**现状**（架构/数据流/类型/性能） | ❌ 历史记录、待办事项 |
+| docs/topics/ | 开发**历史**（问题-方案-成果-代码位置） | ❌ 系统现状描述、实现细节 |
+| 代码 | 实现（注释说明"为什么"） | ❌ 文档该写的内容 |
+
+## 同步规则
+
+代码变更后，由提交者负责同步相关文档：
+
+| 开发活动 | topics/ 更新 | context/ 同步 |
+|---------|-------------|--------------|
+| 性能优化 | `topics/performance/` | `context/QUICK_CONTEXT.md`（性能指标） |
+| 准确度优化 | `topics/accuracy/` | `context/DATA_FLOW.md` |
+| 架构重构 | `topics/engineering/` | `context/ARCHITECTURE.md` + `context/DATA_FLOW.md` |
+| UI 重构 | `topics/ui/` | 无需同步（UI 体现在代码中） |
+| 功能开发 | `topics/features/` | `context/GLOSSARY.md`（新增类型） |
+
+## 维护原则
+
+1. **SSOT**：同一信息只维护一份。速查摘要标注权威源（用 `> 权威源：xxx`）
+2. **及时同步**：代码变更后立即更新文档
+3. **分层清晰**：topics/ 记录历史，context/ 描述现状，不混用
+4. **持续演进**：topics/ 只追加不删除；context/ 持续更新保持一致
+
+## 反模式（红线）
+
+- ❌ **在 topics/ 中描述系统现状** → 应在 context/
+- ❌ **在 context/ 中记录演进历史** → 应在 topics/
+- ❌ **在 README 中写实现细节** → 应在 context/
+- ❌ **代码变更后不同步文档** → 提交者负责
+
+## 代码提交前检查清单
+
+- [ ] 架构变更？→ 更新 `context/ARCHITECTURE.md`
+- [ ] 数据流变化？→ 更新 `context/DATA_FLOW.md`
+- [ ] 新增类型/术语？→ 更新 `context/GLOSSARY.md`
+- [ ] 性能优化？→ 更新 `context/QUICK_CONTEXT.md` + `topics/performance/`
+- [ ] 准确度优化？→ 更新 `context/DATA_FLOW.md` + `topics/accuracy/`
+- [ ] 功能开发？→ 更新 `topics/features/`
+- [ ] UI 优化？→ 更新 `topics/ui/`
+- [ ] 架构/工程优化？→ 更新 `topics/engineering/`
+- [ ] 发现边界场景？→ 更新 `context/EDGE_CASES.md`
+
+---
+
+> **版本**：v1.0（2026-03-24）

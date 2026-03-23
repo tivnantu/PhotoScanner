@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "XcodeBuildMCP": {
+      "args": [
+        "-y",
+        "xcodebuildmcp@latest",
+        "mcp"
+      ],
+      "command": "npx",
+      "env": {
+        "XCODEBUILDMCP_ENABLED_WORKFLOWS": "device,debugging,logging,doctor,project-discovery,project-scaffolding,session-management,swift-package,xcode-ide,utilities"
+      }
+    }
+  }
+}

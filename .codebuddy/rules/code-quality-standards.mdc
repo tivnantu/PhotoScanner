@@ -1,0 +1,96 @@
+---
+description: 
+alwaysApply: true
+enabled: true
+updatedAt: 2026-03-24T10:00:00.000Z
+provider: 
+---
+
+# PhotoScanner 代码质量标准
+
+> 项目红线和最佳实践。编写、审查、重构代码时始终遵循。
+
+## 红线（必须遵守）
+
+### 安全性
+- **禁止** `!` force unwrap — 除非 `guard`/`if let` 同作用域内，或 `precondition` 明确保护
+- **禁止** `try!`
+- **禁止** `as!` — 通过协议接口交互
+- **禁止** `try?` 静默吞掉错误 — 至少 `Logger` 记录
+
+### 并发
+- **禁止** `@unchecked Sendable` — 除非有详细注释证明安全性且标注保护机制
+- **禁止** 非 `@MainActor` 方法访问 `UIApplication.shared`
+- **禁止** View struct 手动标注 `@MainActor`（SwiftUI 隐式处理）
+- **必须** 跨 actor 边界的回调标注 `@Sendable`
+
+### 架构（五层架构）
+
+```
+Foundation/       → 基础类型和配置（纯 Swift，零外部依赖）
+Engine/           → 核心业务逻辑（索引构建、搜索执行）
+Infrastructure/   → 技术基础设施（缓存、监控、调试工具）
+Presentation/     → UI 展示（Views, ViewModels）
+Plugin/           → AI 模型插件（ChineseCLIP*）
+```
+
+- **Foundation 层禁止** import `UIKit`、`Photos`、`CoreLocation`、`Vision`、`CoreML`、`ONNX`
+- **Engine 层禁止** 直接调用 `PHAsset.fetchAssets`、`FileManager` 等基础设施 API
+- **Presentation 层禁止** 执行文件 I/O 或网络操作
+- **所有层** 通过协议交互，不直接依赖具体实现类
+
+### 依赖注入
+- **禁止** 新增 `.shared` 单例
+- **必须** 构造器注入协议类型
+- **禁止** 实例方法内通过 `.shared` 引用自身（使用 `self`）
+
+### 性能
+- **禁止** vDSP/Accelerate 原地操作（输入输出必须是独立缓冲区）
+- **禁止** 在搜索关键路径引入不必要的 async 开销
+- **搜索延迟预算**: P95 ≤ 45ms — 修复不能引入性能回退
+- **图片预处理预算**: ≤ 5ms/张
+- **慎重** 将性能关键路径上的 NSLock 类转为 actor — 需评估同步调用方是否能承受 async 化
+
+## 最佳实践
+
+### 函数设计
+- 函数 ≤ **50 行**（超过则拆分）
+- 文件 ≤ **400 行**（超过则考虑拆分）
+- 参数 ≤ **5 个**（超过则引入参数对象）
+
+### 命名
+- 文件名 = 主要类型名
+- 一个文件一个主要公共类型
+- 统一 `import OSLog`（不用 `import os`）
+- `import` 只放文件顶部
+- enum rawValue 不用中文
+
+### 常量管理
+- 模型参数（logitScale、logitBias）→ `Foundation/` 或 `Engine/`
+- UI 间距/圆角/颜色 → Asset Catalog 或设计常量
+- 算法参数（BM25 k1/b、HNSW M/ef）→ 提取为可配置常量
+
+### 重复消除
+- 通用工具（CJK 判断、cosine similarity、内存计算）→ `Infrastructure/Utils/`
+- 相同初始化模式 → 工厂方法或协议扩展
+- 删除冗余 import 和死代码
+
+### 错误处理
+- 统一使用 `PSError`
+- 错误路径必须 `Logger.xxx.warning` 以上
+- 不用 `CancellationError` 表示"无结果"
+
+## 特殊约束
+
+### 真机构建
+- 本项目使用 `Photos` 等真机专属框架
+- **不支持 iOS Simulator 构建**
+- 所有 `xcodebuild` 命令必须使用真机目标
+
+### 模型文件
+- 模型文件使用 Git LFS 管理
+- 不提交 `.onnx` 等大文件到仓库
+
+### Plugin 层命名
+- 文件名带模型前缀：`ChineseCLIPPlugin`、`ChineseCLIPTokenizer`、`ChineseCLIPImagePreprocessor`
+- 不依赖目录层级消歧
