@@ -4,9 +4,9 @@ import PhotosUI
 import UIKit
 import OSLog
 
-struct TextImageSearchView: View {
+struct TextSearchView: View {
     @Environment(\.services) private var services
-    @State private var viewModel: TextImageSearchViewModel?
+    @State private var viewModel: TextSearchViewModel?
     @State private var pickerItems: [PhotosPickerItem] = []
     @FocusState private var isTextFieldFocused: Bool
 
@@ -29,7 +29,7 @@ struct TextImageSearchView: View {
             .navigationTitle("文搜图")
             .task {
                 guard viewModel == nil else { return }
-                let nextViewModel = TextImageSearchViewModel(services: services)
+                let nextViewModel = TextSearchViewModel(services: services)
                 viewModel = nextViewModel
                 await nextViewModel.initialize()
             }
@@ -37,7 +37,7 @@ struct TextImageSearchView: View {
     }
 
     @ViewBuilder
-    private func statusSection(_ viewModel: TextImageSearchViewModel) -> some View {
+    private func statusSection(_ viewModel: TextSearchViewModel) -> some View {
         Section {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: viewModel.statusSystemImage)
@@ -74,7 +74,7 @@ struct TextImageSearchView: View {
     }
 
     @ViewBuilder
-    private func importSection(_ viewModel: TextImageSearchViewModel) -> some View {
+    private func importSection(_ viewModel: TextSearchViewModel) -> some View {
         Section("图片管理") {
             PhotosPicker(
                 selection: $pickerItems,
@@ -119,7 +119,7 @@ struct TextImageSearchView: View {
     }
 
     @ViewBuilder
-    private func searchSection(_ viewModel: TextImageSearchViewModel) -> some View {
+    private func searchSection(_ viewModel: TextSearchViewModel) -> some View {
         Section("搜索") {
             TextField("输入描述文本，例如：海边日落、红色灯笼", text: Binding(
                 get: { viewModel.queryText },
@@ -160,7 +160,7 @@ struct TextImageSearchView: View {
     }
 
     @ViewBuilder
-    private func performanceSection(_ viewModel: TextImageSearchViewModel) -> some View {
+    private func performanceSection(_ viewModel: TextSearchViewModel) -> some View {
         Section("运行观测") {
             if viewModel.performanceMetrics.isEmpty {
                 Text("完成一次索引恢复、构建或搜索后，这里会显示最近一次关键链路耗时。")
@@ -197,7 +197,7 @@ struct TextImageSearchView: View {
     }
 
     @ViewBuilder
-    private func resultsSection(_ viewModel: TextImageSearchViewModel) -> some View {
+    private func resultsSection(_ viewModel: TextSearchViewModel) -> some View {
         Section("搜索结果") {
             if let feedback = viewModel.resultsFeedback {
                 feedbackCard(feedback) {
@@ -287,7 +287,7 @@ struct TextImageSearchView: View {
 
     private func importSelectedItems(
         _ items: [PhotosPickerItem],
-        into viewModel: TextImageSearchViewModel
+        into viewModel: TextSearchViewModel
     ) async {
         guard !items.isEmpty else { return }
 

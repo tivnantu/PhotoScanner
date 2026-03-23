@@ -52,7 +52,7 @@ private extension PhotoLibraryAccessState {
 
 @Observable
 @MainActor
-final class TextImageSearchViewModel {
+final class TextSearchViewModel {
     var buildState: IndexBuildState = .idle
     var queryText: String = ""
     var isSearching = false

@@ -11,7 +11,7 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         TabView {
-            TextImageSearchView()
+            TextSearchView()
                 .tabItem {
                     Label("文搜图", systemImage: "text.magnifyingglass")
                 }
