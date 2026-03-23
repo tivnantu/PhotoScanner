@@ -102,67 +102,65 @@ actor MMapBruteForceVectorStore: VectorStore {
 
         let dimension = manifest.embeddingDimension
         let vectorOffset = self.dataOffset
-        var topCandidates: [(row: Int, score: Float)] = []
-        topCandidates.reserveCapacity(limitedTopK)
-
-        func insertCandidate(row: Int, score: Float) {
-            if topCandidates.count < limitedTopK {
-                topCandidates.append((row: row, score: score))
-                topCandidates.sort { lhs, rhs in
-                    if lhs.score == rhs.score {
-                        return lhs.row < rhs.row
-                    }
-                    return lhs.score > rhs.score
-                }
-                return
-            }
-
-            guard let weakest = topCandidates.last else {
-                topCandidates = [(row: row, score: score)]
-                return
-            }
-            guard score > weakest.score else {
-                return
-            }
-
-            topCandidates.removeLast()
-            topCandidates.append((row: row, score: score))
-            topCandidates.sort { lhs, rhs in
-                if lhs.score == rhs.score {
-                    return lhs.row < rhs.row
-                }
-                return lhs.score > rhs.score
-            }
-        }
-
         let startedAt = ContinuousClock.now
 
-        try queryEmbedding.withUnsafeBufferPointer { queryBuffer in
-            guard let queryBase = queryBuffer.baseAddress else {
-                throw PSError.invalidInput("queryEmbedding 不能为空")
+        // 并行计算所有相似度分数
+        let scores = try [Float](unsafeUninitializedCapacity: rowCount) { buffer, initializedCount in
+            guard let bufferBase = buffer.baseAddress else {
+                throw PSError.storageCorrupted("无法分配分数缓冲区")
             }
-
-            try mappedData.withUnsafeBytes { rawBuffer in
-                guard let rawBase = rawBuffer.baseAddress else {
-                    throw PSError.storageCorrupted("mmap 数据缓冲区为空")
+            
+            try queryEmbedding.withUnsafeBufferPointer { queryBuffer in
+                guard let queryBase = queryBuffer.baseAddress else {
+                    throw PSError.invalidInput("queryEmbedding 不能为空")
                 }
-
-                let floatBase = rawBase
-                    .advanced(by: vectorOffset)
-                    .assumingMemoryBound(to: Float.self)
-
-                for rowIndex in 0..<rowCount {
-                    var score: Float = 0
-                    vDSP_dotpr(
-                        queryBase,
-                        1,
-                        floatBase.advanced(by: rowIndex * dimension),
-                        1,
-                        &score,
-                        vDSP_Length(dimension)
-                    )
-                    insertCandidate(row: rowIndex, score: score)
+                
+                try mappedData.withUnsafeBytes { rawBuffer in
+                    guard let rawBase = rawBuffer.baseAddress else {
+                        throw PSError.storageCorrupted("mmap 数据缓冲区为空")
+                    }
+                    
+                    let floatBase = rawBase
+                        .advanced(by: vectorOffset)
+                        .assumingMemoryBound(to: Float.self)
+                    
+                    DispatchQueue.concurrentPerform(iterations: rowCount) { rowIndex in
+                        var score: Float = 0
+                        vDSP_dotpr(
+                            queryBase,
+                            1,
+                            floatBase.advanced(by: rowIndex * dimension),
+                            1,
+                            &score,
+                            vDSP_Length(dimension)
+                        )
+                        bufferBase[rowIndex] = score
+                    }
                 }
+            }
+            initializedCount = rowCount
+        }
+
+        // 找 Top-K（使用堆优化的部分排序）
+        var topCandidates: [(row: Int, score: Float)] = []
+        topCandidates.reserveCapacity(limitedTopK)
+        
+        for (index, score) in scores.enumerated() {
+            if topCandidates.count < limitedTopK {
+                topCandidates.append((row: index, score: score))
+                if topCandidates.count == limitedTopK {
+                    topCandidates.sort { $0.score > $1.score }
+                }
+            } else if score > topCandidates.last!.score {
+                topCandidates.removeLast()
+                topCandidates.append((row: index, score: score))
+                // 保持有序（插入排序优化）
+                let last = topCandidates.removeLast()
+                var i = topCandidates.count - 1
+                while i >= 0 && topCandidates[i].score < last.score {
+                    i -= 1
+                }
+                topCandidates.insert(last, at: i + 1)
             }
         }
 
@@ -177,7 +175,7 @@ actor MMapBruteForceVectorStore: VectorStore {
         }
 
         Logger.index.info(
-            "mmap VectorStore 检索完成，候选数: \(rowCount)，返回数: \(results.count)，耗时: \(duration.components.seconds)s"
+            "mmap VectorStore 检索完成（并行），候选数: \(rowCount)，返回数: \(results.count)，耗时: \(duration.components.seconds)s"
         )
         return results
     }

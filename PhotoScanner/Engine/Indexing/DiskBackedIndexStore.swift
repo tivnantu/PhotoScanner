@@ -194,6 +194,12 @@ actor DiskBackedIndexStore: IndexStore {
         rootURL.appendingPathComponent("assets.json")
     }
 
+    private func chunkFileURL(for assetLocalIdentifier: String) -> URL {
+        chunksDirectoryURL
+            .appendingPathComponent(IndexedAssetIdentity.fileStem(for: assetLocalIdentifier))
+            .appendingPathExtension("json")
+    }
+
     private func ensureDirectoryStructure() throws {
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: chunksDirectoryURL, withIntermediateDirectories: true)
