@@ -6,43 +6,67 @@ actor IndexEngine {
     private let indexStore: DiskBackedIndexStore
     private let vectorStore: MMapBruteForceVectorStore
     private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
+    private let performanceStore: RuntimePerformanceStore
 
     init(
         embeddingService: EmbeddingService,
         indexStore: DiskBackedIndexStore,
         vectorStore: MMapBruteForceVectorStore,
-        photoLibraryAssetProvider: PhotoLibraryAssetProvider
+        photoLibraryAssetProvider: PhotoLibraryAssetProvider,
+        performanceStore: RuntimePerformanceStore
     ) {
         self.embeddingService = embeddingService
         self.indexStore = indexStore
         self.vectorStore = vectorStore
         self.photoLibraryAssetProvider = photoLibraryAssetProvider
+        self.performanceStore = performanceStore
     }
 
     func loadCurrentState() async -> IndexBuildState {
+        let startedAt = ContinuousClock.now
+
         do {
+            let state: IndexBuildState
+
             if let checkpoint = try await indexStore.loadCheckpoint() {
                 switch checkpoint.stage {
                 case .building:
                     if let progress = checkpoint.progress {
-                        return .building(progress: progress)
+                        state = .building(progress: progress)
+                    } else {
+                        state = .preparing
                     }
-                    return .preparing
                 case .failed:
-                    return .failed(message: checkpoint.message ?? "索引构建失败")
+                    state = .failed(message: checkpoint.message ?? "索引构建失败")
                 case .idle, .ready:
-                    break
+                    if let manifest = try await indexStore.loadManifest() {
+                        _ = try await vectorStore.restoreIfAvailable()
+                        state = .ready(manifest: manifest)
+                    } else {
+                        state = .idle
+                    }
                 }
-            }
-
-            if let manifest = try await indexStore.loadManifest() {
+            } else if let manifest = try await indexStore.loadManifest() {
                 _ = try await vectorStore.restoreIfAvailable()
-                return .ready(manifest: manifest)
+                state = .ready(manifest: manifest)
+            } else {
+                state = .idle
             }
 
-            return .idle
+            await performanceStore.record(
+                .stateRestore,
+                duration: startedAt.duration(to: .now),
+                detail: Self.restoreDetail(for: state)
+            )
+            return state
         } catch {
-            return .failed(message: error.localizedDescription)
+            let failureMessage = error.localizedDescription
+            await performanceStore.record(
+                .stateRestore,
+                duration: startedAt.duration(to: .now),
+                detail: "恢复失败：\(failureMessage)"
+            )
+            return .failed(message: failureMessage)
         }
     }
 
@@ -60,6 +84,10 @@ actor IndexEngine {
     ) async throws -> IndexBuildState {
         _ = try await indexStore.saveImportedAssets(inputs)
         let allAssets = try await indexStore.loadImportedAssets()
+        let photoLibraryBackedCount = allAssets.filter(\.isPhotoLibraryBacked).count
+        Logger.index.info(
+            "准备重建索引，本次输入 \(inputs.count) 张，累计 \(allAssets.count) 张，系统相册绑定 \(photoLibraryBackedCount) 张"
+        )
         return try await buildIndex(
             from: allAssets,
             reuseExistingChunks: false,
@@ -112,6 +140,7 @@ actor IndexEngine {
         reuseExistingChunks: Bool,
         progressHandler: (@Sendable (IndexBuildState) async -> Void)?
     ) async throws -> IndexBuildState {
+        let startedAt = ContinuousClock.now
         let sortedAssets = assets.sorted { $0.assetLocalIdentifier < $1.assetLocalIdentifier }
         guard !sortedAssets.isEmpty else {
             throw PSError.invalidInput("当前没有可索引的图片，请先选择图片")
@@ -156,13 +185,7 @@ actor IndexEngine {
             }
 
             for asset in sortedAssets where entriesByID[asset.assetLocalIdentifier] == nil {
-                guard let imageData = try await indexStore.importedAssetData(for: asset.assetLocalIdentifier) else {
-                    throw PSError.resourceUnreadable(
-                        path: asset.assetLocalIdentifier,
-                        reason: "导入图片 sidecar 缺失"
-                    )
-                }
-
+                let imageData = try await resolveImageData(for: asset)
                 let embedding = try await embeddingService.embedImage(imageData)
                 let entry = try IndexEntry(
                     assetLocalIdentifier: asset.assetLocalIdentifier,
@@ -198,6 +221,13 @@ actor IndexEngine {
 
             let readyState = IndexBuildState.ready(manifest: manifest)
             await progressHandler?(readyState)
+
+            let buildDuration = startedAt.duration(to: .now)
+            await performanceStore.record(
+                .indexBuild,
+                duration: buildDuration,
+                detail: "候选 \(totalCount) 张，完成 \(manifest.itemCount) 张，续建 \(reuseExistingChunks ? "是" : "否")"
+            )
             Logger.index.info("索引构建完成，条目数: \(manifest.itemCount)")
             return readyState
         } catch {
@@ -210,6 +240,11 @@ actor IndexEngine {
             )
             try? await indexStore.saveCheckpoint(failedCheckpoint)
             await progressHandler?(.failed(message: failureMessage))
+            await performanceStore.record(
+                .indexBuild,
+                duration: startedAt.duration(to: .now),
+                detail: "候选 \(totalCount) 张，失败于 \(completedCount)/\(totalCount)"
+            )
             Logger.index.error("索引构建失败: \(failureMessage)")
             throw error
         }
@@ -218,10 +253,22 @@ actor IndexEngine {
     private func resolveImageData(for asset: StoredIndexedAsset) async throws -> Data {
         if let photoLibraryAssetIdentifier = asset.photoLibraryAssetIdentifier,
            let imageData = await photoLibraryAssetProvider.originalImageData(for: photoLibraryAssetIdentifier) {
+            Logger.index.debug(
+                "构建取图: \(Self.shortIdentifier(asset.assetLocalIdentifier)) 使用系统相册原图，photoIdentifier: \(Self.shortIdentifier(photoLibraryAssetIdentifier))"
+            )
             return imageData
         }
 
         if let cachedData = try await indexStore.importedAssetData(for: asset.assetLocalIdentifier) {
+            if let photoLibraryAssetIdentifier = asset.photoLibraryAssetIdentifier {
+                Logger.index.debug(
+                    "构建取图: \(Self.shortIdentifier(asset.assetLocalIdentifier)) 回退本地缓存，photoIdentifier: \(Self.shortIdentifier(photoLibraryAssetIdentifier))"
+                )
+            } else {
+                Logger.index.debug(
+                    "构建取图: \(Self.shortIdentifier(asset.assetLocalIdentifier)) 无真实资产标识，使用本地缓存"
+                )
+            }
             return cachedData
         }
 
@@ -233,9 +280,13 @@ actor IndexEngine {
             } else {
                 reason = "系统相册当前不可访问，且本地缓存缺失"
             }
+            Logger.index.error(
+                "构建取图失败: \(Self.shortIdentifier(asset.assetLocalIdentifier))，photoIdentifier: \(Self.shortIdentifier(photoLibraryAssetIdentifier))，原因: \(reason)"
+            )
             throw PSError.resourceUnreadable(path: photoLibraryAssetIdentifier, reason: reason)
         }
 
+        Logger.index.error("构建取图失败: \(Self.shortIdentifier(asset.assetLocalIdentifier))，原因: 导入图片缓存缺失")
         throw PSError.resourceUnreadable(
             path: asset.assetLocalIdentifier,
             reason: "导入图片缓存缺失"
@@ -252,7 +303,26 @@ actor IndexEngine {
         ].joined(separator: "|")
     }
 
+    private static func restoreDetail(for state: IndexBuildState) -> String {
+        switch state {
+        case .idle:
+            return "当前无可恢复索引"
+        case .preparing:
+            return "恢复到 preparing 状态"
+        case .building(let progress):
+            return "恢复到 building：\(progress.completedCount)/\(progress.totalCount)"
+        case .ready(let manifest):
+            return "恢复到 ready：\(manifest.itemCount) 张"
+        case .failed(let message):
+            return "恢复到 failed：\(message)"
+        }
+    }
+
     private static func checkpointFailureMessage(for error: Error) -> String {
         error.localizedDescription
+    }
+
+    private static func shortIdentifier(_ identifier: String) -> String {
+        String(identifier.prefix(24))
     }
 }

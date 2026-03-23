@@ -33,4 +33,7 @@ struct AppServices {
 
     /// 真实系统相册资产读取服务
     let photoLibraryAssetProvider: PhotoLibraryAssetProvider
+
+    /// 运行时性能观测
+    let runtimePerformanceStore: RuntimePerformanceStore
 }

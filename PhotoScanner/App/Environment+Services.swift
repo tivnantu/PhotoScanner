@@ -24,16 +24,19 @@ private struct ServicesKey: EnvironmentKey {
             )
         )
         let vectorStore = MMapBruteForceVectorStore(indexStore: indexStore)
-        let photoLibraryAssetProvider = PhotoLibraryAssetProvider()
+        let runtimePerformanceStore = RuntimePerformanceStore()
+        let photoLibraryAssetProvider = PhotoLibraryAssetProvider(performanceStore: runtimePerformanceStore)
         let indexEngine = IndexEngine(
             embeddingService: embedding,
             indexStore: indexStore,
             vectorStore: vectorStore,
-            photoLibraryAssetProvider: photoLibraryAssetProvider
+            photoLibraryAssetProvider: photoLibraryAssetProvider,
+            performanceStore: runtimePerformanceStore
         )
         let searchEngine = SearchEngine(
             embeddingService: embedding,
-            vectorStore: vectorStore
+            vectorStore: vectorStore,
+            performanceStore: runtimePerformanceStore
         )
         return AppServices(
             embeddingService: embedding,
@@ -42,7 +45,8 @@ private struct ServicesKey: EnvironmentKey {
             vectorStore: vectorStore,
             indexEngine: indexEngine,
             searchEngine: searchEngine,
-            photoLibraryAssetProvider: photoLibraryAssetProvider
+            photoLibraryAssetProvider: photoLibraryAssetProvider,
+            runtimePerformanceStore: runtimePerformanceStore
         )
     }()
 }

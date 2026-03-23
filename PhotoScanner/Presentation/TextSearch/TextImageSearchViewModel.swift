@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 
 struct TextSearchResultItem: Identifiable {
     let assetLocalIdentifier: String
@@ -34,6 +35,21 @@ private struct PhotoLibraryPreviewPayload {
     let previewData: Data?
 }
 
+private extension PhotoLibraryAccessState {
+    var metricsLabel: String {
+        switch self {
+        case .fullAccess:
+            return "完全访问"
+        case .limitedAccess:
+            return "受限访问"
+        case .notDetermined:
+            return "未决定"
+        case .unavailable:
+            return "不可访问"
+        }
+    }
+}
+
 @Observable
 @MainActor
 final class TextImageSearchViewModel {
@@ -46,6 +62,7 @@ final class TextImageSearchViewModel {
     var hasAttemptedSearch = false
     var lastSubmittedQuery: String = ""
     var photoLibraryAccessState: PhotoLibraryAccessState = .notDetermined
+    var performanceMetrics: [RuntimePerformanceMetric] = []
 
     var canSearch: Bool {
         !trimmedQuery.isEmpty
@@ -183,6 +200,10 @@ final class TextImageSearchViewModel {
         isSearching ? "搜索中..." : "开始搜索"
     }
 
+    var performanceHintText: String {
+        "以下为最近一次关键链路耗时，便于真机 smoke 时快速判断瓶颈。"
+    }
+
     var resultsSummaryText: String? {
         guard !searchResults.isEmpty else { return nil }
         return "共找到 \(searchResults.count) 张结果，已按相似度从高到低排序。"
@@ -244,6 +265,7 @@ final class TextImageSearchViewModel {
     private let indexEngine: IndexEngine
     private let searchEngine: SearchEngine
     private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
+    private let performanceStore: RuntimePerformanceStore
     private var hasInitialized = false
 
     private var trimmedQuery: String {
@@ -254,6 +276,7 @@ final class TextImageSearchViewModel {
         self.indexEngine = services.indexEngine
         self.searchEngine = services.searchEngine
         self.photoLibraryAssetProvider = services.photoLibraryAssetProvider
+        self.performanceStore = services.runtimePerformanceStore
     }
 
     func initialize() async {
@@ -268,7 +291,11 @@ final class TextImageSearchViewModel {
             }
         } catch {
             applyIndexFailure(error)
+            await refreshPerformanceMetrics()
+            return
         }
+
+        await refreshPerformanceMetrics()
     }
 
     func handlePickedAssets(_ inputs: [IndexedAssetInput]) async {
@@ -280,6 +307,7 @@ final class TextImageSearchViewModel {
         do {
             resetSearchPresentation(keepQuery: true)
             buildState = .preparing
+            await requestPhotoLibraryAccessIfNeeded(for: inputs)
 
             let nextState = try await indexEngine.addAssetsAndRebuild(inputs)
             buildState = nextState
@@ -295,11 +323,13 @@ final class TextImageSearchViewModel {
         do {
             resetSearchPresentation(keepQuery: true)
             buildState = .preparing
+            await requestPhotoLibraryAccessIfNeeded(for: indexedAssets)
             let nextState = try await indexEngine.rebuildImportedAssets()
             buildState = nextState
             try await refreshImportedAssets()
         } catch {
             applyIndexFailure(error)
+            await refreshPerformanceMetrics()
         }
     }
 
@@ -323,6 +353,7 @@ final class TextImageSearchViewModel {
                 tone: .warning,
                 actionTitle: nil
             )
+            await refreshPerformanceMetrics()
             return
         }
 
@@ -333,12 +364,20 @@ final class TextImageSearchViewModel {
         lastSubmittedQuery = query
 
         do {
+            Logger.search.info(
+                "开始回填搜索结果，查询: \(query)，已导入 \(self.indexedCount) 张，系统相册绑定 \(self.photoLibraryBackedCount) 张"
+            )
             let results = try await searchEngine.search(text: query, topK: 12)
+            let previewStartedAt = ContinuousClock.now
             var viewData: [TextSearchResultItem] = []
+            var photoLibraryResolvedCount = 0
             viewData.reserveCapacity(results.count)
 
             for result in results {
                 let resolvedPreview = await resolvePreview(for: result.assetLocalIdentifier)
+                if resolvedPreview.sourceLabel == "系统相册" {
+                    photoLibraryResolvedCount += 1
+                }
                 viewData.append(
                     TextSearchResultItem(
                         assetLocalIdentifier: result.assetLocalIdentifier,
@@ -350,6 +389,12 @@ final class TextImageSearchViewModel {
                 )
             }
 
+            await performanceStore.record(
+                .previewResolution,
+                duration: previewStartedAt.duration(to: .now),
+                detail: "结果 \(viewData.count) 张，系统相册直读 \(photoLibraryResolvedCount) 张"
+            )
+
             searchResults = viewData
             hasAttemptedSearch = true
         } catch {
@@ -358,6 +403,7 @@ final class TextImageSearchViewModel {
             searchFailure = makeSearchFailure(for: error)
         }
 
+        await refreshPerformanceMetrics()
         isSearching = false
     }
 
@@ -373,8 +419,10 @@ final class TextImageSearchViewModel {
             photoLibraryAccessState = await photoLibraryAssetProvider.currentAccessState()
             resetSearchPresentation(keepQuery: true)
             buildState = .idle
+            await refreshPerformanceMetrics()
         } catch {
             applyIndexFailure(error)
+            await refreshPerformanceMetrics()
         }
     }
 
@@ -386,8 +434,36 @@ final class TextImageSearchViewModel {
     }
 
     private func refreshImportedAssets() async throws {
+        let startedAt = ContinuousClock.now
         indexedAssets = try await indexEngine.loadImportedAssets()
         photoLibraryAccessState = await photoLibraryAssetProvider.currentAccessState()
+        await performanceStore.record(
+            .assetRefresh,
+            duration: startedAt.duration(to: .now),
+            detail: "已导入 \(indexedCount) 张，系统相册绑定 \(photoLibraryBackedCount) 张，权限 \(photoLibraryAccessState.metricsLabel)"
+        )
+        await refreshPerformanceMetrics()
+    }
+
+    private func requestPhotoLibraryAccessIfNeeded(for inputs: [IndexedAssetInput]) async {
+        let requiresPhotoLibraryAccess = inputs.contains {
+            ($0.photoLibraryAssetIdentifier?.isEmpty == false) || ($0.assetLocalIdentifier?.isEmpty == false)
+        }
+        guard requiresPhotoLibraryAccess else { return }
+
+        let nextState = await photoLibraryAssetProvider.requestReadAccessIfNeeded()
+        photoLibraryAccessState = nextState
+    }
+
+    private func requestPhotoLibraryAccessIfNeeded(for assets: [StoredIndexedAsset]) async {
+        guard assets.contains(where: \.isPhotoLibraryBacked) else { return }
+
+        let nextState = await photoLibraryAssetProvider.requestReadAccessIfNeeded()
+        photoLibraryAccessState = nextState
+    }
+
+    private func refreshPerformanceMetrics() async {
+        performanceMetrics = await performanceStore.metrics()
     }
 
     private func resetSearchPresentation(keepQuery: Bool) {

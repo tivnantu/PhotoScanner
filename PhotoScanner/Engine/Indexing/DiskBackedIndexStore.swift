@@ -75,7 +75,10 @@ actor DiskBackedIndexStore: IndexStore {
         let data = try jsonEncoder.encode(allAssets)
         try data.write(to: assetsMetadataURL, options: .atomic)
 
-        Logger.index.info("导入图片已更新，当前累计 \(allAssets.count) 张")
+        let photoLibraryBackedCount = allAssets.filter(\.isPhotoLibraryBacked).count
+        Logger.index.info(
+            "导入图片已更新，当前累计 \(allAssets.count) 张，系统相册绑定 \(photoLibraryBackedCount) 张，本地缓存 \(allAssets.count - photoLibraryBackedCount) 张"
+        )
         return allAssets
     }
 

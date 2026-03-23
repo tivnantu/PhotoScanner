@@ -1,6 +1,8 @@
 import SwiftUI
+import Photos
 import PhotosUI
 import UIKit
+import OSLog
 
 struct TextImageSearchView: View {
     @Environment(\.services) private var services
@@ -81,7 +83,9 @@ struct TextImageSearchView: View {
             PhotosPicker(
                 selection: $pickerItems,
                 maxSelectionCount: 30,
-                matching: .images
+                matching: .images,
+                preferredItemEncoding: .automatic,
+                photoLibrary: .shared()
             ) {
                 Label("选择图片并重建索引", systemImage: "photo.on.rectangle.angled")
             }
@@ -156,6 +160,43 @@ struct TextImageSearchView: View {
                 }
             }
             .disabled(!viewModel.canSearch)
+        }
+    }
+
+    @ViewBuilder
+    private func performanceSection(_ viewModel: TextImageSearchViewModel) -> some View {
+        Section("运行观测") {
+            if viewModel.performanceMetrics.isEmpty {
+                Text("完成一次索引恢复、构建或搜索后，这里会显示最近一次关键链路耗时。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(viewModel.performanceMetrics) { metric in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(metric.title)
+                                .font(.subheadline)
+                            Spacer()
+                            Text(metric.durationText)
+                                .font(.footnote.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text(metric.detail)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        Text("记录于 \(metric.recordedAtText)")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+
+            Text(viewModel.performanceHintText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -254,14 +295,20 @@ struct TextImageSearchView: View {
             var inputs: [IndexedAssetInput] = []
             inputs.reserveCapacity(items.count)
 
-            for item in items {
+            for (index, item) in items.enumerated() {
+                let normalizedIdentifier = item.itemIdentifier?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let shortIdentifier = shortIdentifier(normalizedIdentifier)
+
                 if let data = try await item.loadTransferable(type: Data.self) {
                     inputs.append(
                         try IndexedAssetInput(
-                            assetLocalIdentifier: item.itemIdentifier,
+                            assetLocalIdentifier: normalizedIdentifier,
                             imageData: data
                         )
                     )
+                } else {
+                    Logger.ui.error("选图[\(index + 1)/\(items.count)] 数据读取失败，itemIdentifier: \(shortIdentifier)")
                 }
             }
 
@@ -272,8 +319,14 @@ struct TextImageSearchView: View {
 
             await viewModel.handlePickedAssets(inputs)
         } catch {
+            Logger.ui.error("文搜图导入失败: \(error.localizedDescription)")
             await viewModel.presentImportFailure(error)
         }
+    }
+
+    private func shortIdentifier(_ identifier: String?) -> String {
+        guard let identifier, !identifier.isEmpty else { return "nil" }
+        return String(identifier.prefix(24))
     }
 
     private func statusTint(for buildState: IndexBuildState) -> Color {
