@@ -17,6 +17,7 @@ class ImageSearchViewModel {
     
     var state: ImageSearchState = .idle
     var selectedPreviewImage: UIImage?
+    private var hasInitialized = false
     
     // MARK: - Initialization
     
@@ -24,6 +25,19 @@ class ImageSearchViewModel {
         self.embeddingService = services.embeddingService
         self.vectorStore = services.vectorStore
         self.photoLibraryAssetProvider = services.photoLibraryAssetProvider
+    }
+    
+    /// 初始化服务
+    func initialize() async {
+        guard !hasInitialized else { return }
+        hasInitialized = true
+        
+        // 初始化 EmbeddingService
+        do {
+            try await embeddingService.initialize()
+        } catch {
+            state = .error(error)
+        }
     }
     
     // MARK: - Public Methods

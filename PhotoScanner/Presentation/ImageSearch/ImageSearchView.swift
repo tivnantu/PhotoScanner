@@ -18,7 +18,9 @@ struct ImageSearchView: View {
         .navigationTitle("以图搜图")
         .task {
             guard viewModel == nil else { return }
-            viewModel = ImageSearchViewModel(services: services)
+            let nextViewModel = ImageSearchViewModel(services: services)
+            viewModel = nextViewModel
+            await nextViewModel.initialize()
         }
         .onChange(of: selectedPickerItem) { _, newItem in
             if let newItem, let viewModel {
