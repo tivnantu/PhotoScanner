@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import Photos
 
 struct TextSearchResultItem: Identifiable {
     let assetLocalIdentifier: String
@@ -46,6 +45,7 @@ final class TextImageSearchViewModel {
     var searchFailure: TextImageFeedback?
     var hasAttemptedSearch = false
     var lastSubmittedQuery: String = ""
+    var photoLibraryAccessState: PhotoLibraryAccessState = .notDetermined
 
     var canSearch: Bool {
         !trimmedQuery.isEmpty
@@ -70,6 +70,10 @@ final class TextImageSearchViewModel {
 
     var indexedCount: Int {
         indexedAssets.count
+    }
+
+    var photoLibraryBackedCount: Int {
+        indexedAssets.filter(\.isPhotoLibraryBacked).count
     }
 
     var canRebuildFromImportedAssets: Bool {
@@ -108,14 +112,17 @@ final class TextImageSearchViewModel {
         switch buildState {
         case .idle:
             if indexedCount > 0 {
-                return "你已经导入了 \(indexedCount) 张图片，可以直接建立或重建本地向量索引。"
+                return "你已经导入了 \(indexedCount) 张图片，其中 \(photoLibraryBackedCount) 张绑定了系统相册资产，可以直接建立或重建本地向量索引。"
             }
             return "先选择几张图片，建立本地向量索引后再做文搜图。"
         case .preparing:
-            return "正在整理导入图片、检查索引文件并准备恢复构建环境。"
+            return "正在整理导入图片、检查索引文件，并优先连接系统相册里的真实资产。"
         case .building(let progress):
             return "已完成 \(progress.completedCount) / \(progress.totalCount) 张图片 embedding，请稍候。"
         case .ready:
+            if photoLibraryBackedCount > 0 {
+                return "查询阶段会直接读取已索引向量；当前有 \(photoLibraryBackedCount) 张结果可优先回填系统相册资源。"
+            }
             return "查询阶段会直接读取已索引向量，不会重新跑图片 embedding。"
         case .failed(let message):
             return statusFailureDetail(from: message)
@@ -133,6 +140,27 @@ final class TextImageSearchViewModel {
         }
     }
 
+    var importSourceHintText: String {
+        if indexedCount == 0 {
+            return "从系统相册选择图片时，会同时保存真实资产标识和本地缓存，后续构建与结果展示会优先走真实图库资源。"
+        }
+
+        guard photoLibraryBackedCount > 0 else {
+            return "当前导入图片都只依赖本地缓存；如果改用系统相册选择，后续可自动升级到真实资产主路径。"
+        }
+
+        switch photoLibraryAccessState {
+        case .fullAccess:
+            return "当前有 \(photoLibraryBackedCount) 张图片已绑定系统相册资产；重建索引和结果展示会优先读取真实图库资源。"
+        case .limitedAccess:
+            return "当前有 \(photoLibraryBackedCount) 张图片已绑定系统相册资产；在受限授权范围内会优先读取真实图库资源，超出范围时回退本地缓存。"
+        case .notDetermined:
+            return "当前有 \(photoLibraryBackedCount) 张图片已绑定系统相册资产；在未授予读取权限前，系统会先回退到本地缓存。"
+        case .unavailable:
+            return "当前有 \(photoLibraryBackedCount) 张图片已绑定系统相册资产，但系统相册不可访问；构建与结果展示会暂时回退到本地缓存。"
+        }
+    }
+
     var searchHintText: String {
         if isBuilding {
             return "索引构建中，完成后才能开始搜索。"
@@ -145,7 +173,10 @@ final class TextImageSearchViewModel {
         if trimmedQuery.isEmpty {
             return "输入一句自然语言描述，例如：海边日落、红色灯笼、雪山与湖泊。"
         }
-        return "搜索会直接检索本地向量索引；如果能读取系统相册，会优先回填真实照片缩略图。"
+        if photoLibraryBackedCount > 0 {
+            return "搜索会先检索本地向量索引；命中结果后会优先回填系统相册缩略图，读不到时再回退本地缓存。"
+        }
+        return "搜索会直接检索本地向量索引，并回填导入时缓存的图片预览。"
     }
 
     var searchButtonTitle: String {
@@ -212,6 +243,7 @@ final class TextImageSearchViewModel {
 
     private let indexEngine: IndexEngine
     private let searchEngine: SearchEngine
+    private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
     private var hasInitialized = false
 
     private var trimmedQuery: String {
@@ -221,6 +253,7 @@ final class TextImageSearchViewModel {
     init(services: AppServices) {
         self.indexEngine = services.indexEngine
         self.searchEngine = services.searchEngine
+        self.photoLibraryAssetProvider = services.photoLibraryAssetProvider
     }
 
     func initialize() async {
@@ -229,7 +262,7 @@ final class TextImageSearchViewModel {
 
         buildState = await indexEngine.loadCurrentState()
         do {
-            indexedAssets = try await indexEngine.loadImportedAssets()
+            try await refreshImportedAssets()
             if case .building = buildState {
                 try await resumeInterruptedBuild()
             }
@@ -250,7 +283,7 @@ final class TextImageSearchViewModel {
 
             let nextState = try await indexEngine.addAssetsAndRebuild(inputs)
             buildState = nextState
-            indexedAssets = try await indexEngine.loadImportedAssets()
+            try await refreshImportedAssets()
         } catch {
             applyIndexFailure(error)
         }
@@ -264,7 +297,7 @@ final class TextImageSearchViewModel {
             buildState = .preparing
             let nextState = try await indexEngine.rebuildImportedAssets()
             buildState = nextState
-            indexedAssets = try await indexEngine.loadImportedAssets()
+            try await refreshImportedAssets()
         } catch {
             applyIndexFailure(error)
         }
@@ -337,6 +370,7 @@ final class TextImageSearchViewModel {
         do {
             try await indexEngine.clearAll()
             indexedAssets = []
+            photoLibraryAccessState = await photoLibraryAssetProvider.currentAccessState()
             resetSearchPresentation(keepQuery: true)
             buildState = .idle
         } catch {
@@ -348,7 +382,12 @@ final class TextImageSearchViewModel {
         buildState = .preparing
         let nextState = try await indexEngine.resumeBuildIfNeeded()
         buildState = nextState
+        try await refreshImportedAssets()
+    }
+
+    private func refreshImportedAssets() async throws {
         indexedAssets = try await indexEngine.loadImportedAssets()
+        photoLibraryAccessState = await photoLibraryAssetProvider.currentAccessState()
     }
 
     private func resetSearchPresentation(keepQuery: Bool) {
@@ -368,7 +407,10 @@ final class TextImageSearchViewModel {
     }
 
     private func resolvePreview(for assetLocalIdentifier: String) async -> PhotoLibraryPreviewPayload {
-        if let photoLibraryPayload = await loadPhotoLibraryPreview(for: assetLocalIdentifier) {
+        let storedAsset = indexedAssets.first { $0.assetLocalIdentifier == assetLocalIdentifier }
+
+        if let photoLibraryAssetIdentifier = storedAsset?.photoLibraryAssetIdentifier,
+           let photoLibraryPayload = await photoLibraryAssetProvider.previewResource(for: photoLibraryAssetIdentifier) {
             let fallbackData: Data?
             if let previewData = photoLibraryPayload.previewData {
                 fallbackData = previewData
@@ -378,70 +420,40 @@ final class TextImageSearchViewModel {
 
             return PhotoLibraryPreviewPayload(
                 displayTitle: photoLibraryPayload.displayTitle,
-                sourceLabel: photoLibraryPayload.sourceLabel,
+                sourceLabel: "系统相册",
                 previewData: fallbackData
             )
         }
 
         let fallbackData = try? await indexEngine.loadImageData(for: assetLocalIdentifier)
         return PhotoLibraryPreviewPayload(
-            displayTitle: fallbackDisplayTitle(for: assetLocalIdentifier),
-            sourceLabel: "本地导入",
+            displayTitle: fallbackDisplayTitle(for: storedAsset, assetLocalIdentifier: assetLocalIdentifier),
+            sourceLabel: fallbackSourceLabel(for: storedAsset),
             previewData: fallbackData
         )
     }
 
-    private func loadPhotoLibraryPreview(for assetLocalIdentifier: String) async -> PhotoLibraryPreviewPayload? {
-        guard hasPhotoLibraryReadAccess else { return nil }
+    private func fallbackSourceLabel(for asset: StoredIndexedAsset?) -> String {
+        guard let asset else {
+            return "本地缓存"
+        }
 
-        let result = PHAsset.fetchAssets(withLocalIdentifiers: [assetLocalIdentifier], options: nil)
-        guard let asset = result.firstObject else { return nil }
+        guard asset.isPhotoLibraryBacked else {
+            return "本地导入"
+        }
 
-        let resources = PHAssetResource.assetResources(for: asset)
-        let displayTitle = resources.first?.originalFilename ?? photoLibraryFallbackTitle(for: asset)
-        let previewData = await requestPhotoLibraryPreviewData(for: asset)
-
-        return PhotoLibraryPreviewPayload(
-            displayTitle: displayTitle,
-            sourceLabel: "系统相册",
-            previewData: previewData
-        )
-    }
-
-    private var hasPhotoLibraryReadAccess: Bool {
-        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
-        case .authorized, .limited:
-            return true
-        default:
-            return false
+        switch photoLibraryAccessState {
+        case .fullAccess, .limitedAccess:
+            return "系统相册缓存"
+        case .notDetermined, .unavailable:
+            return "本地缓存"
         }
     }
 
-    private func requestPhotoLibraryPreviewData(for asset: PHAsset) async -> Data? {
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .fastFormat
-        options.resizeMode = .fast
-        options.isNetworkAccessAllowed = false
-        options.version = .current
-
-        return await withCheckedContinuation { continuation in
-            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
-                continuation.resume(returning: data)
-            }
+    private func fallbackDisplayTitle(for asset: StoredIndexedAsset?, assetLocalIdentifier: String) -> String {
+        if asset?.isPhotoLibraryBacked == true {
+            return "系统相册图片（缓存）"
         }
-    }
-
-    private func photoLibraryFallbackTitle(for asset: PHAsset) -> String {
-        if let creationDate = asset.creationDate {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .none
-            return "系统相册图片 · \(formatter.string(from: creationDate))"
-        }
-        return "系统相册图片"
-    }
-
-    private func fallbackDisplayTitle(for assetLocalIdentifier: String) -> String {
         if assetLocalIdentifier.hasPrefix("asset-") {
             return "本地导入图片"
         }
@@ -461,6 +473,9 @@ final class TextImageSearchViewModel {
         }
         if trimmed.contains("存储") || trimmed.contains("vectors") || trimmed.contains("manifest") {
             return "本地索引文件异常，请使用已导入图片重新建索引；必要时清空后再试。"
+        }
+        if trimmed.contains("系统相册") {
+            return "真实图库资源当前不可用；如果系统相册权限或资源状态异常，会自动回退本地缓存，请检查后重试。"
         }
         if trimmed.contains("资源") || trimmed.contains("sidecar") || trimmed.contains("不可读") {
             return "本地图片或索引资源缺失，请使用已导入图片重新建索引。"
@@ -482,7 +497,7 @@ final class TextImageSearchViewModel {
         case .modelNotFound, .modelLoadFailed, .inferenceFailed, .invalidModelOutput, .serviceNotReady:
             return "模型暂时不可用，请稍后重试；如果持续失败，可重新打开应用。"
         case .resourceNotFound, .resourceUnreadable:
-            return "本地图片或索引资源读取失败，请使用已导入图片重新建索引。"
+            return "图片资源读取失败，请检查系统相册权限或使用已导入图片重新建索引。"
         case .storageCorrupted:
             return "本地索引文件异常，请使用已导入图片重新建索引；必要时清空后重试。"
         case .unsupportedOperation:
@@ -532,7 +547,7 @@ final class TextImageSearchViewModel {
             return TextImageFeedback(
                 systemImage: "photo.badge.exclamationmark",
                 title: "结果资源读取失败",
-                detail: "搜索已完成，但部分本地资源无法读取；你可以重试搜索或重新建立索引。",
+                detail: "搜索已完成，但真实图库资源或本地缓存暂时不可用；你可以重试搜索或重新建立索引。",
                 tone: .warning,
                 actionTitle: "重试搜索"
             )

@@ -24,10 +24,12 @@ struct PhotoScannerApp: App {
         let similarityEngine = SimilarityEngine(embeddingService: embeddingService)
         let indexStore = DiskBackedIndexStore()
         let vectorStore = MMapBruteForceVectorStore(indexStore: indexStore)
+        let photoLibraryAssetProvider = PhotoLibraryAssetProvider()
         let indexEngine = IndexEngine(
             embeddingService: embeddingService,
             indexStore: indexStore,
-            vectorStore: vectorStore
+            vectorStore: vectorStore,
+            photoLibraryAssetProvider: photoLibraryAssetProvider
         )
         let searchEngine = SearchEngine(
             embeddingService: embeddingService,
@@ -40,7 +42,8 @@ struct PhotoScannerApp: App {
             indexStore: indexStore,
             vectorStore: vectorStore,
             indexEngine: indexEngine,
-            searchEngine: searchEngine
+            searchEngine: searchEngine,
+            photoLibraryAssetProvider: photoLibraryAssetProvider
         )
 
         Logger.app.info("PhotoScanner 启动")

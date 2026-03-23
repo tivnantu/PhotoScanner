@@ -30,4 +30,7 @@ struct AppServices {
 
     /// 文搜图搜索引擎
     let searchEngine: SearchEngine
+
+    /// 真实系统相册资产读取服务
+    let photoLibraryAssetProvider: PhotoLibraryAssetProvider
 }

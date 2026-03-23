@@ -5,15 +5,18 @@ actor IndexEngine {
     private let embeddingService: EmbeddingService
     private let indexStore: DiskBackedIndexStore
     private let vectorStore: MMapBruteForceVectorStore
+    private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
 
     init(
         embeddingService: EmbeddingService,
         indexStore: DiskBackedIndexStore,
-        vectorStore: MMapBruteForceVectorStore
+        vectorStore: MMapBruteForceVectorStore,
+        photoLibraryAssetProvider: PhotoLibraryAssetProvider
     ) {
         self.embeddingService = embeddingService
         self.indexStore = indexStore
         self.vectorStore = vectorStore
+        self.photoLibraryAssetProvider = photoLibraryAssetProvider
     }
 
     func loadCurrentState() async -> IndexBuildState {
@@ -210,6 +213,33 @@ actor IndexEngine {
             Logger.index.error("索引构建失败: \(failureMessage)")
             throw error
         }
+    }
+
+    private func resolveImageData(for asset: StoredIndexedAsset) async throws -> Data {
+        if let photoLibraryAssetIdentifier = asset.photoLibraryAssetIdentifier,
+           let imageData = await photoLibraryAssetProvider.originalImageData(for: photoLibraryAssetIdentifier) {
+            return imageData
+        }
+
+        if let cachedData = try await indexStore.importedAssetData(for: asset.assetLocalIdentifier) {
+            return cachedData
+        }
+
+        if let photoLibraryAssetIdentifier = asset.photoLibraryAssetIdentifier {
+            let accessState = await photoLibraryAssetProvider.currentAccessState()
+            let reason: String
+            if accessState.hasReadAccess {
+                reason = "系统相册资源已失效，且本地缓存缺失"
+            } else {
+                reason = "系统相册当前不可访问，且本地缓存缺失"
+            }
+            throw PSError.resourceUnreadable(path: photoLibraryAssetIdentifier, reason: reason)
+        }
+
+        throw PSError.resourceUnreadable(
+            path: asset.assetLocalIdentifier,
+            reason: "导入图片缓存缺失"
+        )
     }
 
     private static func modelFingerprint(for descriptor: ModelDescriptor) -> String {

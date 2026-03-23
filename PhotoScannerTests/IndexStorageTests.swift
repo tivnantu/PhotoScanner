@@ -35,6 +35,29 @@ struct IndexStorageTests {
         #expect(results.first?.score == 1)
     }
 
+    @Test("导入资产会保留真实系统相册标识")
+    func importedAssetsPersistPhotoLibraryIdentifier() async throws {
+        let rootURL = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let store = DiskBackedIndexStore(rootURL: rootURL)
+        let inputs = [
+            try IndexedAssetInput(assetLocalIdentifier: "photo-library-id-1", imageData: Data([1, 2, 3])),
+            try IndexedAssetInput(imageData: Data([4, 5, 6]))
+        ]
+
+        _ = try await store.saveImportedAssets(inputs)
+        let assets = try await store.loadImportedAssets()
+
+        #expect(assets.count == 2)
+        #expect(assets.first?.assetLocalIdentifier == "asset-787c798e39a5bc19")
+        #expect(assets.first?.photoLibraryAssetIdentifier == nil)
+        #expect(assets.first?.isPhotoLibraryBacked == false)
+        #expect(assets.last?.assetLocalIdentifier == "photo-library-id-1")
+        #expect(assets.last?.photoLibraryAssetIdentifier == "photo-library-id-1")
+        #expect(assets.last?.isPhotoLibraryBacked == true)
+    }
+
     private func makeSnapshot() throws -> IndexSnapshot {
         let fixedDate = Date(timeIntervalSince1970: 1_710_000_000)
         let descriptor = ModelDescriptor(

@@ -3,6 +3,7 @@ import CryptoKit
 
 struct IndexedAssetInput: Sendable {
     let assetLocalIdentifier: String?
+    let photoLibraryAssetIdentifier: String?
     let imageData: Data
     let createdAt: Date
 
@@ -15,7 +16,9 @@ struct IndexedAssetInput: Sendable {
             throw PSError.invalidInput("导入图片数据不能为空")
         }
 
-        self.assetLocalIdentifier = assetLocalIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedIdentifier = assetLocalIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.assetLocalIdentifier = normalizedIdentifier
+        self.photoLibraryAssetIdentifier = normalizedIdentifier
         self.imageData = imageData
         self.createdAt = createdAt
     }
@@ -23,12 +26,18 @@ struct IndexedAssetInput: Sendable {
 
 struct StoredIndexedAsset: Sendable, Codable, Equatable, Identifiable {
     let assetLocalIdentifier: String
+    let photoLibraryAssetIdentifier: String?
     let assetFingerprint: String
     let createdAt: Date
     let updatedAt: Date
 
     var id: String {
         assetLocalIdentifier
+    }
+
+    var isPhotoLibraryBacked: Bool {
+        guard let photoLibraryAssetIdentifier else { return false }
+        return !photoLibraryAssetIdentifier.isEmpty
     }
 
     init(input: IndexedAssetInput, existing: StoredIndexedAsset? = nil, now: Date = Date()) {
@@ -43,6 +52,7 @@ struct StoredIndexedAsset: Sendable, Codable, Equatable, Identifiable {
         }
 
         self.assetLocalIdentifier = resolvedIdentifier
+        self.photoLibraryAssetIdentifier = sanitizedIdentifier
         self.assetFingerprint = fingerprint
         self.createdAt = existing?.createdAt ?? input.createdAt
         self.updatedAt = now

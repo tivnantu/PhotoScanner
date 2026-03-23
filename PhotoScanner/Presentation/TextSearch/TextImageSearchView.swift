@@ -112,7 +112,7 @@ struct TextImageSearchView: View {
             }
             .disabled(viewModel.isBuilding || viewModel.indexedCount == 0)
 
-            Text("当前会优先保存系统相册里的真实图片标识；搜索结果若能访问系统相册，会优先回填真实缩略图，否则回退到本地导入缓存。")
+            Text(viewModel.importSourceHintText)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
