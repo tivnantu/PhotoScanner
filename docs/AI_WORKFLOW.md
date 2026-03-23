@@ -5,9 +5,8 @@
 >
 > 相关组件：
 > - 问题诊断路由 → `AI_ROUTING.md`
-> - V1 迁移分析 → `v1-analysis/`
 
-## V2 架构分层
+## 架构分层
 
 ```
 ├── Foundation/          # 基础类型和配置
@@ -175,10 +174,9 @@ struct FeatureView: View {
 - 性能瓶颈
 
 步骤:
-1. 阅读相关分析文档
-2. 确保有测试覆盖（先写测试）
-3. 小步重构，频繁验证
-4. 更新 ARCHITECTURE.md（架构变更）
+1. 确保有测试覆盖（先写测试）
+2. 小步重构，频繁验证
+3. 更新 ARCHITECTURE.md（架构变更）
 ```
 
 ## 代码审查清单
@@ -190,24 +188,4 @@ struct FeatureView: View {
 □ 错误使用 PSError 枚举
 □ 注释解释"为什么"而非"是什么"
 □ 核心链路日志不偷懒
-```
-
-## 从 V1 迁移注意事项
-
-```
-1. 不迁移的组件（根据评审）:
-   - DDD 五层架构（改用四层）
-   - Float16 量化
-   - DeviceTier（最低 14 Pro）
-   - iOS 版本适配（无脑 iOS 26.0）
-
-2. 简化实现的组件:
-   - ShimmerView: 简要实现
-   - PerformanceOverlay: 简单实现
-   - ResourceBudget: 简单考虑
-
-3. 结合实际情况的组件:
-   - ServiceContainer: 按需使用
-   - 二进制文件格式: 结合项目状态
-   - 并行模型加载: 结合自己实现
 ```

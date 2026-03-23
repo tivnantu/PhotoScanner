@@ -9,9 +9,7 @@
 | 用户提问关键词 | 优先级读取 | 动作 |
 |---------------|-----------|------|
 | "Embedding是什么" | `context/GLOSSARY.md` | 提供语义解释 |
-| "搜索流程" | `context/DATA_FLOW.md` | 提供完整流程 |
-| "为什么这样设计" | `v1-analysis/` | 解释迁移决策背景 |
-| "性能指标" | `context/PERFORMANCE_BENCHMARKS.md` | 提供基准数据 |
+| "性能指标" | `context/QUICK_CONTEXT.md` | 提供基准数据 |
 | "vDSP加速" | `Foundation/Math/SimdUtils.swift` | 查看实现 |
 | "HNSW索引" | `Engine/Indexing/HNSWIndex.swift` | 查看实现 |
 | "缓存策略" | `Infrastructure/Cache/` | 查看缓存实现 |
@@ -35,16 +33,16 @@
   ├── 运行时错误？
   │   ├── 索引相关 → EDGE_CASES.md + Engine/Indexing/
   │   ├── 搜索相关 → EDGE_CASES.md + Engine/Search/
-  │   └── 内存相关 → PERFORMANCE_BENCHMARKS.md
+  │   └── 内存相关 → Infrastructure/System/MemoryMonitor.swift
   │
   ├── 性能问题？
-  │   ├── 搜索慢 → PERFORMANCE_BENCHMARKS.md（搜索延迟）
-  │   ├── 索引慢 → PERFORMANCE_BENCHMARKS.md（索引速度）
-  │   └── 内存高 → PERFORMANCE_BENCHMARKS.md（内存优化）
+  │   ├── 搜索慢 → Infrastructure/Cache/
+  │   ├── 索引慢 → Engine/Indexing/
+  │   └── 内存高 → ResourceBudget.swift
   │
   └── 逻辑问题？
-      ├── 搜索结果不准 → DATA_FLOW.md（搜索流程）
-      └── 相似度异常 → SimilarityScore.swift（映射参数）
+      ├── 搜索结果不准 → Engine/Search/
+      └── 相似度异常 → SimilarityScore.swift
 ```
 
 ## 上下文窗口紧张时的读取顺序
@@ -55,19 +53,14 @@
 
 优先级 2（按需，各 ~4-5K tokens）:
   - context/GLOSSARY.md（类型定义）
-  - context/DATA_FLOW.md（流程理解）
+  - context/ARCHITECTURE.md（架构理解）
 
-优先级 3（深入，各 ~5-8K tokens）:
-  - context/ARCHITECTURE.md（架构详情）
-  - v1-analysis/*.md（迁移分析）
-
-避免同时加载:
-  - 完整 context/DATA_FLOW.md（含 mermaid）
-  - 多个 v1-analysis/ 文件（选择最相关的一个）
+优先级 3（深入）:
+  - context/MODEL_SPECS.md（模型规格）
+  - 具体源代码文件
 ```
 
 ## 关联组件
 
 - 功能开发路由 → 见 `AI_WORKFLOW.md`
-- V1 迁移分析 → `v1-analysis/`
-- 迁移计划 → `superpowers/plans/2026-03-24-v1-to-v2-migration.md`
+- 系统知识 → `context/`
