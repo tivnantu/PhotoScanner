@@ -3,7 +3,7 @@
 // PhotoScanner
 //
 // 应用首页。
-// 当前阶段以最小文搜图为主入口，同时保留相似度验证页作为内部调试台。
+// 文搜图和以图搜图作为核心功能入口。
 //
 
 import SwiftUI
@@ -19,11 +19,6 @@ struct ContentView: View {
             ImageSearchView()
                 .tabItem {
                     Label("以图搜图", systemImage: "photo.fill")
-                }
-
-            SimilarityDebugView()
-                .tabItem {
-                    Label("验证台", systemImage: "waveform.path.ecg")
                 }
         }
     }
