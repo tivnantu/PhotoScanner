@@ -2,6 +2,10 @@ import Foundation
 import Photos
 import UIKit
 
+// TODO: 架构合规 - Foundation 层禁止导入 UIKit/Photos，此文件应移至 Infrastructure/ 层
+// Issue: Foundation 层应为纯 Swift，零外部依赖
+// 迁移目标: Infrastructure/PhotoLibraryAssetProvider.swift
+
 enum PhotoLibraryAccessState: Sendable, Equatable {
     case fullAccess
     case limitedAccess

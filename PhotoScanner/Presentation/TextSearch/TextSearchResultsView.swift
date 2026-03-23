@@ -32,7 +32,7 @@ struct TextSearchResultsView: View {
             
             // 保存搜索历史
             Task {
-                await SearchHistoryManager.shared.addHistory(initialQuery)
+                await services.searchHistoryManager.addHistory(initialQuery)
             }
             
             await nextViewModel.performSearch()
@@ -93,7 +93,7 @@ struct TextSearchResultsView: View {
                         if !queryText.trimmingCharacters(in: .whitespaces).isEmpty {
                             viewModel.queryText = queryText
                             Task {
-                                await SearchHistoryManager.shared.addHistory(queryText)
+                                await services.searchHistoryManager.addHistory(queryText)
                                 await viewModel.performSearch()
                             }
                         }

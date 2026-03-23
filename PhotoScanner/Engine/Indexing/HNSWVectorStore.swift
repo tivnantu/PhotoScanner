@@ -34,7 +34,7 @@ actor HNSWVectorStore: VectorStore {
     
     // MARK: - Initialization
     
-    init(embeddingDimension: Int = 768, config: HNSWIndex.Config? = nil) {
+    init(embeddingDimension: Int = 512, config: HNSWIndex.Config? = nil) {
         self.embeddingDimension = embeddingDimension
         
         // 确保 config.dimension 与 embeddingDimension 一致

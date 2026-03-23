@@ -20,7 +20,7 @@
 
 | 技术 | 说明 |
 |------|------|
-| **Chinese-CLIP ViT-B/16** | 中文图文跨模态预训练模型，双塔 ONNX 格式 |
+| **Chinese-CLIP ViT-B/16** | 中文图文跨模态预训练模型，双塔 ONNX 格式，512 维输出 |
 | **ONNX Runtime Mobile** | iOS 端模型推理运行时 |
 | **SwiftUI** | 界面框架 |
 | **Swift 6 Concurrency** | actor 隔离 + async/await 并发模型 |
@@ -49,8 +49,8 @@ PhotoScanner/
 │   ├── Presentation/       # UI 层
 │   └── Plugin/             # AI 模型插件
 ├── docs/
-│   ├── context/            # 系统知识
-│   └── topics/             # 开发活动
+│   ├── context/            # 系统知识（稳定事实）
+│   └── AI_*.md             # AI 协作指南
 └── .codebuddy/             # AI 工具链
 ```
 
@@ -77,14 +77,17 @@ Presentation → Engine → Foundation ← Infrastructure ← Plugin
 | 搜索延迟 (P95) | ~45ms |
 | 索引速度 | ~10 张/s |
 | 预处理时间 | ~5ms |
-| Embedding 维度 | 768 |
+| Embedding 维度 | 512 |
 
-## 文档
+## 文档体系
 
-- [AGENTS.md](AGENTS.md) — AI 编码助手操作手册
-- [CONTRIBUTING.md](CONTRIBUTING.md) — 贡献指南
-- [docs/context/](docs/context) — 系统知识（架构、数据流、术语表）
-- [docs/topics/](docs/topics) — 开发活动（性能、准确度、功能、工程、UI）
+| 文档 | 说明 |
+|------|------|
+| [AGENTS.md](AGENTS.md) | AI 编码助手操作手册（编码原则、易错点） |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南（开发流程、代码审查） |
+| [docs/context/](docs/context) | 系统知识（架构、术语表、模型规格、边界场景） |
+| [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md) | AI 开发工作流 |
+| [docs/AI_ROUTING.md](docs/AI_ROUTING.md) | AI 决策路由 |
 
 ## 贡献
 

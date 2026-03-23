@@ -1,6 +1,11 @@
 import Foundation
 import OSLog
 
+// TODO: 架构合规 - IndexEngine 依赖具体类而非协议
+// 问题：private let vectorStore: MMapBruteForceVectorStore（具体类）
+// 建议：改为 private let vectorStore: any VectorStore
+// 影响：需要同步修改 init 参数类型，但 SearchEngine 已使用 any VectorStore
+
 actor IndexEngine {
     private let embeddingService: EmbeddingService
     private let indexStore: DiskBackedIndexStore

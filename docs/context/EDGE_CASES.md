@@ -24,33 +24,30 @@ vDSP_vsdiv(input, 1, &std, &output, 1, count)
 
 ```swift
 // ❌ 错误
-struct MyView: View {
-    var body: some View { ... }
-}
+@MainActor
+struct MyView: View { ... }
 
 // ✅ 正确（无需标注）
-struct MyView: View {
-    var body: some View { ... }
-}
+struct MyView: View { ... }
 ```
 
-### Actor 跨边界回调
+### @unchecked Sendable 违规
 
-**问题**：跨 actor 边界的回调必须标注 @Sendable。
+**问题**：`HNSWIndex` 使用 `@unchecked Sendable`，违反项目红线。
 
 ```swift
-// ❌ 错误
-actor MyService {
-    func perform(callback: () -> Void) {  // callback 不是 Sendable
-        Task { callback() }
-    }
-}
+// TODO: 评估改为 actor 或完全由 HNSWVectorStore 封装
+final class HNSWIndex: @unchecked Sendable { ... }
+```
 
-// ✅ 正确
-actor MyService {
-    func perform(callback: @Sendable () -> Void) {
-        Task { callback() }
-    }
+### ThumbnailCache.preload 竞态
+
+**问题**：`nonisolated` 方法创建 Task，高频调用可能产生竞态。
+
+```swift
+// TODO: 使用 Task.detached 或添加调用频率限制
+nonisolated func preload(assetIds: [String]) {
+    Task { await _preload(assetIds: assetIds) }
 }
 ```
 
@@ -67,7 +64,6 @@ cache.totalCountLimit = 100
 
 // ✅ 正确理解
 // totalCountLimit 是建议，系统可能忽略
-// 使用 count 属性监控实际数量
 ```
 
 ### 图片内存峰值
@@ -78,57 +74,75 @@ cache.totalCountLimit = 100
 // ❌ 危险：直接加载原图
 let image = UIImage(contentsOfFile: path)  // 可能 50MB+
 
-// ✅ 安全：使用 ImageDownsampler 降采样
+// ✅ 安全：使用 ImageDownsampler
 let thumbnail = await ImageDownsampler.downsample(
     url: url,
     maxDimension: 256
-)  // 峰值可控
-```
-
-## 索引陷阱
-
-### HNSW 参数不匹配
-
-**问题**：构建和搜索使用不同的 ef 参数导致结果不一致。
-
-```swift
-// ❌ 错误
-// 构建时 efConstruction = 200
-// 搜索时 efSearch = 50  // 可能漏掉最近邻
-
-// ✅ 正确
-// efSearch 应该 >= efConstruction / 4
-let config = HNSWConfig(
-    efConstruction: 200,
-    efSearch: 50  // OK: 200/4 = 50
 )
 ```
 
-### 检查点版本不兼容
+## 架构陷阱
 
-**问题**：旧版本检查点可能导致崩溃。
+### Foundation 层违规导入
+
+**问题**：`PhotoLibraryAssetProvider` 位于 Foundation 层但导入了 UIKit/Photos。
 
 ```swift
-// ✅ 解决：版本校验
-guard (1...currentVersion).contains(checkpoint.version) else {
-    try? fileManager.removeItem(at: checkpointURL)
-    return nil
-}
+// TODO: 移至 Infrastructure/ 层
+import Photos
+import UIKit
+```
+
+### Engine 层直接调用 FileManager
+
+**问题**：`DiskBackedIndexStore` 和 `MMapBruteForceVectorStore` 直接调用 FileManager。
+
+```swift
+// TODO: 通过协议抽象文件操作
+FileManager.default.fileExists(atPath: ...)
+```
+
+### 单例模式
+
+**问题**：已修复。原 `SearchHistoryManager.shared` 违反依赖注入原则。
+
+```swift
+// ✅ 当前实现：构造器注入
+init(userDefaults: UserDefaults = .standard)
 ```
 
 ## 模型陷阱
+
+### 维度不匹配
+
+**问题**：Chinese-CLIP ViT-B/16 输出 512 维，原 HNSW 默认配置为 768。
+
+```swift
+// ✅ 已修复
+init(embeddingDimension: Int = 512)
+```
 
 ### ANE 不支持
 
 **问题**：某些旧设备不支持 ANE 加速。
 
 ```swift
-// ✅ 解决：检测并降级
 let checker = ANECompatibilityChecker()
 let strategy = await checker.checkCompatibility()
-if !strategy.supportsANE {
-    // 使用 CPU 推理
-}
+```
+
+## 构建陷阱
+
+### 模拟器构建失败
+
+**问题**：Photos 等框架不支持模拟器。
+
+```bash
+# ❌ 错误
+xcodebuild -destination 'platform=iOS Simulator'
+
+# ✅ 正确
+xcodebuild -destination 'platform=iOS,name=<真机>'
 ```
 
 ### 模型文件 Git LFS
@@ -143,43 +157,6 @@ git lfs ls-files
 git lfs pull
 ```
 
-## 构建陷阱
-
-### 模拟器构建失败
-
-**问题**：Photos 等框架不支持模拟器。
-
-```bash
-# ❌ 错误
-xcodebuild -destination 'platform=iOS Simulator,name=iPhone 15'
-
-# ✅ 正确
-xcodebuild -destination 'platform=iOS,name=ta_iPhone14'
-# 或无真机时
-xcodebuild -destination 'generic/platform=iOS'
-```
-
-### Swift 6 严格并发
-
-**问题**：Swift 6 默认启用严格并发检查。
-
-```swift
-// 常见错误：nonisolated 属性访问 isolated 存储
-actor MyService {
-    private var cache: [String: Data] = [:]
-    
-    // ❌ 错误
-    nonisolated func get(_ key: String) -> Data? {
-        cache[key]  // 访问 isolated 存储
-    }
-    
-    // ✅ 正确
-    func get(_ key: String) -> Data? {
-        cache[key]
-    }
-}
-```
-
 ## 缓存陷阱
 
 ### 缓存键冲突
@@ -188,7 +165,7 @@ actor MyService {
 
 ```swift
 // ❌ 可能冲突
-let key = "\(text)"  // 不同编码可能相同字符串
+let key = "\(text)"
 
 // ✅ 安全：使用哈希
 let key = SHA256.hash(data: text.data(using: .utf8)!)
@@ -199,6 +176,6 @@ let key = SHA256.hash(data: text.data(using: .utf8)!)
 **问题**：源数据更新后缓存未失效。
 
 ```swift
-// ✅ 解决：版本化缓存键
+// ✅ 版本化缓存键
 let cacheKey = "\(assetId)_v\(version)"
 ```

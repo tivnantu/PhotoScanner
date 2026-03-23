@@ -29,6 +29,12 @@ import OSLog
 ///     // 使用缓存的缩略图
 /// }
 ///
+/// TODO: 并发安全 - preload 方法存在竞态条件风险
+/// 问题：
+/// 1. nonisolated 方法内创建未约束的 Task，高频调用可能创建大量 Task
+/// 2. inflightIDs 检查→插入非原子，存在竞态窗口
+/// 建议：使用 Task.detached 或添加调用频率限制，将 inflightIDs 检查改为原子操作
+///
 /// // 存入缓存
 /// await cache.store(image, for: assetId)
 ///

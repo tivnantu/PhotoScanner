@@ -193,6 +193,10 @@ actor EmbeddingCache {
     }
 
     /// 内存缓存条目数
+    ///
+    /// TODO: 准确性 - 当前返回配置的限制值，而非实际缓存条目数
+    /// 问题：NSCache 不直接提供条目计数，需要额外维护
+    /// 建议：考虑维护一个独立的计数器，或使用近似值
     var memoryCount: Int {
         config.memoryCountLimit
     }

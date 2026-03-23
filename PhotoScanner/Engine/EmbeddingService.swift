@@ -236,16 +236,14 @@ actor EmbeddingService {
 
     /// L2 归一化
     private func normalize(_ vector: [Float], source: String) throws -> [Float] {
-        let squaredNorm = vector.reduce(Float.zero) { partial, value in
-            partial + value * value
-        }
-        let norm = sqrt(squaredNorm)
+        let result = SimdUtils.normalize(vector)
 
-        guard norm.isFinite, norm > .ulpOfOne else {
+        // 验证归一化结果
+        guard result.allSatisfy(\.isFinite) else {
             throw PSError.invalidModelOutput("\(source) 范数异常，无法归一化")
         }
 
-        return vector.map { $0 / norm }
+        return result
     }
 
     private static func normalize(_ error: Error, fallback: String) -> PSError {

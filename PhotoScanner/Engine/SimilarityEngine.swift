@@ -68,8 +68,6 @@ final class SimilarityEngine: Sendable {
             )
         }
 
-        return zip(a, b).reduce(Float.zero) { partial, pair in
-            partial + pair.0 * pair.1
-        }
+        return SimdUtils.dot(a, b)
     }
 }

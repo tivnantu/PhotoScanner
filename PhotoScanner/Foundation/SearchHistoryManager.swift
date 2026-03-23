@@ -2,13 +2,13 @@ import Foundation
 
 /// 搜索历史管理器
 actor SearchHistoryManager {
-    static let shared = SearchHistoryManager()
-    
-    private let userDefaults = UserDefaults.standard
+    private let userDefaults: UserDefaults
     private let historyKey = "SearchHistory"
     private let maxHistoryCount = 10
     
-    private init() {}
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+    }
     
     /// 获取搜索历史
     func getHistory() -> [String] {

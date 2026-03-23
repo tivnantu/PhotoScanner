@@ -313,6 +313,7 @@ struct ImageImageSimilarityView: View {
         vectorStore: vectorStore,
         performanceStore: runtimePerformanceStore
     )
+    let searchHistoryManager = SearchHistoryManager()
     let services = AppServices(
         embeddingService: embedding,
         similarityEngine: similarity,
@@ -322,7 +323,8 @@ struct ImageImageSimilarityView: View {
         searchEngine: searchEngine,
         photoLibraryAssetProvider: photoLibraryAssetProvider,
         runtimePerformanceStore: runtimePerformanceStore,
-        thumbnailCache: thumbnailCache
+        thumbnailCache: thumbnailCache,
+        searchHistoryManager: searchHistoryManager
     )
     
     NavigationStack {

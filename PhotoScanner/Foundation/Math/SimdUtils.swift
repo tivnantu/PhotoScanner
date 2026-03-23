@@ -4,7 +4,7 @@
 //
 // 高性能向量运算工具
 // 基于 Accelerate (vDSP) 和 SIMD 框架，提供向量点积、归一化、余弦相似度等运算。
-// 对 768 维向量，vDSP 比手动循环快约 20-30 倍。
+// 对 512 维向量（Chinese-CLIP ViT-B/16），vDSP 比手动循环快约 20-30 倍。
 //
 
 import Accelerate
@@ -13,7 +13,7 @@ import simd
 /// 高性能向量运算工具
 ///
 /// 基于 Accelerate (vDSP) 和 SIMD 框架，提供向量点积、归一化、余弦相似度等运算。
-/// 对 768 维向量，vDSP 比手动循环快约 20-30 倍。
+/// 对 512 维向量（Chinese-CLIP ViT-B/16），vDSP 比手动循环快约 20-30 倍。
 ///
 /// ## 性能优势
 /// - 点积计算：vDSP_dotpr 比手动循环快 20-30 倍

@@ -87,8 +87,6 @@ actor BruteForceVectorStore: VectorStore {
             )
         }
 
-        return zip(lhs, rhs).reduce(Float.zero) { partial, pair in
-            partial + pair.0 * pair.1
-        }
+        return SimdUtils.dot(lhs, rhs)
     }
 }

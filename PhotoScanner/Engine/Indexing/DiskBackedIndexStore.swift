@@ -1,6 +1,10 @@
 import Foundation
 import OSLog
 
+// TODO: 架构合规 - Engine 层直接调用 FileManager 基础设施 API
+// 问题：Engine 层应通过协议与基础设施交互，而非直接调用 FileManager
+// 建议：引入文件系统抽象协议，如 FileSystemProtocol，由 Infrastructure 层实现
+
 actor DiskBackedIndexStore: IndexStore {
     private let rootURL: URL
     private let jsonEncoder: JSONEncoder

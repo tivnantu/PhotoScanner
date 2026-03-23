@@ -34,6 +34,9 @@ struct PhotoScannerApp: App {
         // 缩略图缓存
         let thumbnailCache = ThumbnailCache()
         
+        // 搜索历史管理器
+        let searchHistoryManager = SearchHistoryManager()
+        
         // 注入缓存到 PhotoLibraryAssetProvider
         let photoLibraryAssetProvider = PhotoLibraryAssetProvider(
             performanceStore: runtimePerformanceStore,
@@ -62,7 +65,8 @@ struct PhotoScannerApp: App {
             searchEngine: searchEngine,
             photoLibraryAssetProvider: photoLibraryAssetProvider,
             runtimePerformanceStore: runtimePerformanceStore,
-            thumbnailCache: thumbnailCache
+            thumbnailCache: thumbnailCache,
+            searchHistoryManager: searchHistoryManager
         )
 
         Logger.app.info("PhotoScanner 启动")

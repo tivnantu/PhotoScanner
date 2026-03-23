@@ -45,15 +45,14 @@ open PhotoScanner.xcodeproj
 
 **核心约定**：
 - **五层架构**：Foundation → Engine → Infrastructure → Presentation ← Plugin
-- **Swift 6 并发**：所有服务使用 `actor` 隔离
-- **依赖注入**：构造器注入协议
-- **SwiftUI 规范**：`@Observable` + `@Environment`
+- **Swift 6 并发**：所有服务使用 `actor` 隔离可变状态
+- **依赖注入**：构造器注入协议，禁止 `.shared` 单例
+- **SwiftUI 规范**：`@Observable` + `@Environment`，View 不手动标注 `@MainActor`
 
 ### 📚 项目知识
 
 - **快速了解项目**：[`docs/context/QUICK_CONTEXT.md`](./docs/context/QUICK_CONTEXT.md)
 - **架构设计**：[`docs/context/ARCHITECTURE.md`](./docs/context/ARCHITECTURE.md)
-- **数据流**：[`docs/context/DATA_FLOW.md`](./docs/context/DATA_FLOW.md)
 - **术语表**：[`docs/context/GLOSSARY.md`](./docs/context/GLOSSARY.md)
 - **边界场景**：[`docs/context/EDGE_CASES.md`](./docs/context/EDGE_CASES.md)
 
@@ -115,9 +114,10 @@ PR 需要满足以下条件：
 
 ### ✅ 代码质量
 - [ ] 遵循 `AGENTS.md` 中的编码规范
-- [ ] 所有服务使用 `actor` 隔离
-- [ ] 依赖通过构造器注入
+- [ ] 所有服务使用 `actor` 隔离可变状态
+- [ ] 依赖通过构造器注入（无 `.shared` 单例）
 - [ ] 无编译警告（Swift 6 strict concurrency）
+- [ ] 无 force unwrap / try! / as!
 
 ### ✅ 功能完整性
 - [ ] 功能正常工作
@@ -125,13 +125,10 @@ PR 需要满足以下条件：
 - [ ] 添加适当的错误处理
 
 ### ✅ 文档更新
-- [ ] 新增功能：更新 `docs/context/GLOSSARY.md` + `docs/topics/features/`
-- [ ] 架构变更：更新 `docs/context/ARCHITECTURE.md` + `docs/topics/engineering/`
-- [ ] 性能优化：更新 `docs/context/QUICK_CONTEXT.md` + `docs/topics/performance/`
-- [ ] UI 变更：更新 `docs/topics/ui/`
-
-### ✅ 边界场景
-- [ ] 新增已知陷阱时更新 `docs/context/EDGE_CASES.md`
+- [ ] 新增功能：更新 `docs/context/GLOSSARY.md`
+- [ ] 架构变更：更新 `docs/context/ARCHITECTURE.md`
+- [ ] 性能优化：更新 `docs/context/QUICK_CONTEXT.md`
+- [ ] 新增陷阱：更新 `docs/context/EDGE_CASES.md`
 
 ---
 
@@ -147,10 +144,11 @@ Presentation/     → UI 展示（Views, ViewModels）
 Plugin/           → AI 模型插件（ChineseCLIP*）
 ```
 
-**红线**：
-- Foundation 层禁止 import UIKit/Photos/CoreLocation/Vision/CoreML/ONNX
-- Engine 层禁止直接调用基础设施 API
+**红线**（不可违反）：
+- Foundation 层禁止 import `UIKit`、`Photos`、`CoreLocation`、`Vision`、`CoreML`、`ONNX`
+- Engine 层禁止直接调用 `FileManager`、`PHAsset.fetchAssets` 等基础设施 API
 - Presentation 层禁止执行文件 I/O 或网络操作
+- 所有层禁止新增 `.shared` 单例，必须通过构造器注入协议
 
 ---
 
@@ -160,22 +158,20 @@ Plugin/           → AI 模型插件（ChineseCLIP*）
 
 | 指标 | 目标 |
 |------|------|
-| 搜索延迟 (P95) | <50ms |
-| 索引速度 | >10张/s |
-| 图片预处理 | <5ms/张 |
+| 搜索延迟 (P95) | ≤ 45ms |
+| 索引速度 | ~10 张/s |
+| 图片预处理 | ≤ 5ms/张 |
 
 ---
 
 ## 问题反馈
 
 ### Bug 报告
-- 使用 GitHub Issues
 - 提供复现步骤
-- 附上日志
+- 附上日志（`Logger` 分类）
 - 说明设备型号和 iOS 版本
 
 ### 功能请求
-- 使用 GitHub Issues
 - 描述使用场景
 - 说明为什么需要这个功能
 

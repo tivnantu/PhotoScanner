@@ -2,6 +2,10 @@ import Foundation
 import OSLog
 import Accelerate
 
+// TODO: 架构合规 - Engine 层直接调用 FileManager.default.fileExists
+// 问题：Engine 层应通过协议与基础设施交互，而非直接调用 FileManager
+// 建议：通过 indexStore 协议方法检查文件存在性，而非直接使用 FileManager
+
 actor MMapBruteForceVectorStore: VectorStore {
     private let indexStore: DiskBackedIndexStore
 

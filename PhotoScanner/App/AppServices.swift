@@ -39,4 +39,7 @@ struct AppServices {
     
     /// 缩略图缓存
     let thumbnailCache: ThumbnailCache
+    
+    /// 搜索历史管理器
+    let searchHistoryManager: SearchHistoryManager
 }

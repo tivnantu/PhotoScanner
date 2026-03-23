@@ -7,27 +7,32 @@
 
 ## 工作模式
 
-本项目采用**人类掌舵、Agent 执行**的协作模式：
+**人类掌舵、Agent 执行**：
 
-- **人类**定义意图（做什么）、设计约束（不能做什么）、评估结果（做对了没有）
+- **人类**定义意图（做什么）、设计约束（不能做什么）、评估结果
 - **Agent**在约束边界内自主执行——读代码、分析问题、修改实现、验证构建
-- **反馈**驱动收敛——修改后验证、验证后复审、复审后修正，直到问题消除
+- **反馈**驱动收敛——修改后验证、验证后复审、复审后修正
 
 > Agent 遇到不确定的设计决策时，**停下来问人**，而不是凭推测行动。
 
 ## 核心原则（3条）
 
-### 1. 四层架构原则
+### 1. 五层架构原则
 
 ```
-Foundation/       → 基础类型和配置（Embedding, Errors, Logger, 相似度计算）
-Engine/           → 核心业务逻辑（索引构建、搜索执行、预处理）
-Infrastructure/   → 技术基础设施（缓存、监控、ANE检测、调试工具）
-Presentation/     → UI 展示（Views, ViewModels, Components）
+Foundation/       → 基础类型和配置（纯 Swift，零外部依赖）
+Engine/           → 核心业务逻辑（索引构建、搜索执行）
+Infrastructure/   → 技术基础设施（缓存、监控、调试工具）
+Presentation/     → UI 展示（Views, ViewModels）
 Plugin/           → AI 模型插件（ChineseCLIP*）
 ```
 
-**AI 推断**：目录名即职责，根据任务性质自然选择目标目录。
+**架构红线**（不可违反）：
+
+1. **Foundation 层**：禁止 import `UIKit`、`Photos`、`CoreLocation`、`Vision`、`CoreML`、`ONNX`
+2. **Engine 层**：禁止直接调用 `FileManager`、`PHAsset.fetchAssets` 等基础设施 API
+3. **Presentation 层**：禁止执行文件 I/O 或网络操作
+4. **所有层**：禁止新增 `.shared` 单例，必须通过构造器注入协议
 
 ### 2. Swift 6 并发原则
 
@@ -78,12 +83,12 @@ let store = DiskBackedIndexStore.shared
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
-| 图片尺寸 | 256×256 | vImage 预处理 |
-| Token 长度 | 72 | XLM-RoBERTa |
-| Embedding 维度 | 768 | Chinese-CLIP |
+| 图片尺寸 | 224×224 | 模型输入尺寸 |
+| Token 长度 | 52 | 含 [CLS]/[SEP] |
+| Embedding 维度 | **512** | Chinese-CLIP ViT-B/16 |
 | 搜索延迟 | ~45ms | P95 目标 |
-| 最低 iOS | 26.0 | 无版本适配 |
-| 最低设备 | iPhone 14 Pro | 无设备分级 |
+| 最低 iOS | 26.0 | Swift 6 严格并发 |
+| 最低设备 | iPhone 14 Pro | ANE 加速 |
 
 ## 日志分类速查
 
@@ -100,13 +105,12 @@ Logger.system   // 系统、崩溃处理
 ## 注意事项
 
 1. **模型文件使用 Git LFS**
-2. **所有服务使用 actor 隔离**
-3. **不要手动添加 @MainActor**
+2. **所有服务使用 actor 隔离可变状态**
+3. **不要手动添加 @MainActor 到 View**
 4. **依赖协议而非实现**
-5. **仅支持真机构建**——本项目使用 `Photos` 等真机专属框架，不支持 iOS Simulator 构建
-6. **核心链路注释日志不能偷懒**——每 Phase 完成后 commit
+5. **仅支持真机构建**——使用 Photos 框架，不支持 iOS Simulator
+6. **核心链路日志不能偷懒**——关键路径必须有日志记录
 
 ---
 
-> 💡 **AI 提示**：Swift/SwiftUI 基础规范、标准库 API 使用等，AI 已内化，无需在此重复。
-> 本文档聚焦项目特定的架构约定和易错点。
+> 💡 **AI 提示**：Swift/SwiftUI 基础规范 AI 已内化，本文档聚焦项目特定的架构约定和易错点。

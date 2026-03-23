@@ -46,6 +46,12 @@ import OSLog
 /// - 所有可变状态都是 `private`
 /// - 所有公开方法都通过 `lock.lock()` / `lock.unlock()` 保护
 /// - `lock` 属性本身是 `let`，不可重新赋值
+///
+/// TODO: 并发安全 - 当前使用 @unchecked Sendable 违反项目红线
+/// 建议方案：
+/// 1. 改为 actor（需评估对 HNSWVectorStore 的影响）
+/// 2. 或让 HNSWVectorStore 完全封装 HNSWIndex，不直接暴露
+/// Issue: 所有可变状态已用 NSLock 保护，但 @unchecked Sendable 仍属违规
 final class HNSWIndex: @unchecked Sendable {
 
     // MARK: - Types
@@ -68,13 +74,13 @@ final class HNSWIndex: @unchecked Sendable {
         /// 距离度量
         let distanceMetric: DistanceMetric
 
-        /// 默认配置（适用于 768 维 CLIP 向量）
+        /// 默认配置（适用于 512 维 Chinese-CLIP ViT-B/16 向量）
         static let `default` = Config(
             maxConnections: 16,
             maxConnectionsLayer0: 32,
             efConstruction: 200,
             efSearch: 100,
-            dimension: 768,
+            dimension: 512,
             distanceMetric: .cosine
         )
     }

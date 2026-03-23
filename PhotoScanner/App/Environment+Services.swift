@@ -42,6 +42,7 @@ private struct ServicesKey: EnvironmentKey {
             vectorStore: vectorStore,
             performanceStore: runtimePerformanceStore
         )
+        let searchHistoryManager = SearchHistoryManager()
         return AppServices(
             embeddingService: embedding,
             similarityEngine: similarity,
@@ -51,7 +52,8 @@ private struct ServicesKey: EnvironmentKey {
             searchEngine: searchEngine,
             photoLibraryAssetProvider: photoLibraryAssetProvider,
             runtimePerformanceStore: runtimePerformanceStore,
-            thumbnailCache: thumbnailCache
+            thumbnailCache: thumbnailCache,
+            searchHistoryManager: searchHistoryManager
         )
     }()
 }
