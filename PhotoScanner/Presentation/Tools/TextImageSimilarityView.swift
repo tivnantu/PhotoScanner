@@ -278,7 +278,11 @@ struct TextImageSimilarityView: View {
     )
     let vectorStore = MMapBruteForceVectorStore(indexStore: indexStore)
     let runtimePerformanceStore = RuntimePerformanceStore()
-    let photoLibraryAssetProvider = PhotoLibraryAssetProvider(performanceStore: runtimePerformanceStore)
+    let thumbnailCache = ThumbnailCache()
+    let photoLibraryAssetProvider = PhotoLibraryAssetProvider(
+        performanceStore: runtimePerformanceStore,
+        thumbnailCache: thumbnailCache
+    )
     let indexEngine = IndexEngine(
         embeddingService: embedding,
         indexStore: indexStore,
@@ -299,10 +303,11 @@ struct TextImageSimilarityView: View {
         indexEngine: indexEngine,
         searchEngine: searchEngine,
         photoLibraryAssetProvider: photoLibraryAssetProvider,
-        runtimePerformanceStore: runtimePerformanceStore
+        runtimePerformanceStore: runtimePerformanceStore,
+        thumbnailCache: thumbnailCache
     )
     
-    return NavigationStack {
+    NavigationStack {
         TextImageSimilarityView(services: services)
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Photos
+import UIKit
 
 enum PhotoLibraryAccessState: Sendable, Equatable {
     case fullAccess
@@ -24,9 +25,13 @@ struct PhotoLibraryPreviewResource: Sendable {
 
 actor PhotoLibraryAssetProvider {
     private let performanceStore: RuntimePerformanceStore
+    
+    /// 缩略图缓存（可选）
+    private let thumbnailCache: ThumbnailCache?
 
-    init(performanceStore: RuntimePerformanceStore) {
+    init(performanceStore: RuntimePerformanceStore, thumbnailCache: ThumbnailCache? = nil) {
         self.performanceStore = performanceStore
+        self.thumbnailCache = thumbnailCache
     }
 
     func currentAccessState() -> PhotoLibraryAccessState {
@@ -58,6 +63,19 @@ actor PhotoLibraryAssetProvider {
             await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 权限不可用")
             return nil
         }
+        
+        // 优先从 ThumbnailCache 获取
+        if let cache = thumbnailCache, let cachedImage = await cache.image(for: localIdentifier) {
+            await recordPerformance(
+                .photoLibraryPreview,
+                startedAt: startedAt,
+                detail: "\(shortIdentifier(localIdentifier)) 缓存命中"
+            )
+            return PhotoLibraryPreviewResource(
+                displayTitle: "", // 缩略图不需要标题
+                previewData: cachedImage.pngData()
+            )
+        }
 
         guard let asset = fetchAsset(localIdentifier: localIdentifier) else {
             await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 资源不存在")
@@ -70,6 +88,12 @@ actor PhotoLibraryAssetProvider {
             resizeMode: .fast,
             allowsNetworkAccess: false
         )
+        
+        // 写入缓存
+        if let cache = thumbnailCache, let data = previewData, let image = UIImage(data: data) {
+            await cache.store(image, for: localIdentifier)
+        }
+        
         await recordPerformance(
             .photoLibraryPreview,
             startedAt: startedAt,

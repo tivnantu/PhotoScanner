@@ -156,7 +156,7 @@ final class HNSWIndex: @unchecked Sendable {
     /// 预分配容量 + 批量处理，减少内存分配和锁竞争。
     ///
     /// - Parameter vectors: 向量数组，包含外部 ID 和向量数据
-    func insertBatch(vectors: [(id: String, vector: [Float])]) {
+    nonisolated func insertBatch(vectors: [(id: String, vector: [Float])]) {
         lock.lock()
         defer { lock.unlock() }
 
@@ -313,7 +313,7 @@ final class HNSWIndex: @unchecked Sendable {
     ///   - vector: 查询向量
     ///   - k: 返回数量
     /// - Returns: 搜索结果数组，按距离升序排列
-    func search(vector: [Float], k: Int) -> [SearchResult] {
+    nonisolated func search(vector: [Float], k: Int) -> [SearchResult] {
         lock.lock()
         defer { lock.unlock() }
 
@@ -363,14 +363,14 @@ final class HNSWIndex: @unchecked Sendable {
     }
 
     /// 获取索引大小
-    var count: Int {
+    nonisolated var count: Int {
         lock.lock()
         defer { lock.unlock() }
         return nodes.count
     }
 
     /// 清空索引
-    func clear() {
+    nonisolated func clear() {
         lock.lock()
         defer { lock.unlock() }
         nodes.removeAll()

@@ -55,8 +55,17 @@ enum ChineseCLIPImagePreprocessor {
     // MARK: - RGBA buffer
 
     nonisolated private static func makeRGBABytes(from imageData: Data, width: Int, height: Int) throws -> [UInt8] {
+        // 使用 ImageIO 降采样选项，在解码阶段直接输出目标尺寸
+        // 避免先解码全尺寸图片再缩放，节省内存
+        let options: [CFString: Any] = [
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(width, height),
+        ]
+        
         guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
             throw PSError.invalidInput("无法解码图像数据")
         }
 

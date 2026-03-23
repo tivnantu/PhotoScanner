@@ -30,7 +30,16 @@ struct PhotoScannerApp: App {
         let indexStore = DiskBackedIndexStore()
         let vectorStore = MMapBruteForceVectorStore(indexStore: indexStore)
         let runtimePerformanceStore = RuntimePerformanceStore()
-        let photoLibraryAssetProvider = PhotoLibraryAssetProvider(performanceStore: runtimePerformanceStore)
+        
+        // 缩略图缓存
+        let thumbnailCache = ThumbnailCache()
+        
+        // 注入缓存到 PhotoLibraryAssetProvider
+        let photoLibraryAssetProvider = PhotoLibraryAssetProvider(
+            performanceStore: runtimePerformanceStore,
+            thumbnailCache: thumbnailCache
+        )
+        
         let indexEngine = IndexEngine(
             embeddingService: embeddingService,
             indexStore: indexStore,
@@ -52,7 +61,8 @@ struct PhotoScannerApp: App {
             indexEngine: indexEngine,
             searchEngine: searchEngine,
             photoLibraryAssetProvider: photoLibraryAssetProvider,
-            runtimePerformanceStore: runtimePerformanceStore
+            runtimePerformanceStore: runtimePerformanceStore,
+            thumbnailCache: thumbnailCache
         )
 
         Logger.app.info("PhotoScanner 启动")

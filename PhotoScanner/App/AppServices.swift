@@ -36,4 +36,7 @@ struct AppServices {
 
     /// 运行时性能观测
     let runtimePerformanceStore: RuntimePerformanceStore
+    
+    /// 缩略图缓存
+    let thumbnailCache: ThumbnailCache
 }
