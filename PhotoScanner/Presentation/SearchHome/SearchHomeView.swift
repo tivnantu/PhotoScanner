@@ -97,7 +97,7 @@ struct SearchHomeView: View {
                 Spacer()
             }
             .navigationDestination(isPresented: $showTextSearch) {
-                TextSearchView(initialQuery: searchText)
+                TextSearchResultsView(initialQuery: searchText)
             }
             .navigationDestination(isPresented: $showImageSearch) {
                 ImageSearchView()
