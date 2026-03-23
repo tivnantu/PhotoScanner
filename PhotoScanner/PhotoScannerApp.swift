@@ -19,6 +19,11 @@ struct PhotoScannerApp: App {
     // MARK: - 初始化（Composition Root）
 
     init() {
+        // DEBUG 环境初始化崩溃处理器
+        #if DEBUG
+        CrashHandler.setup()
+        #endif
+        
         let plugin = ChineseCLIPPlugin()
         let embeddingService = EmbeddingService(plugin: plugin)
         let similarityEngine = SimilarityEngine(embeddingService: embeddingService)
@@ -59,6 +64,11 @@ struct PhotoScannerApp: App {
         WindowGroup {
             ContentView()
                 .environment(\.services, services)
+                #if DEBUG
+                .overlay {
+                    PerformanceOverlay()
+                }
+                #endif
         }
     }
 }

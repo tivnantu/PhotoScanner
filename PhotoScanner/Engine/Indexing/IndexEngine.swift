@@ -7,6 +7,9 @@ actor IndexEngine {
     private let vectorStore: MMapBruteForceVectorStore
     private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
     private let performanceStore: RuntimePerformanceStore
+    
+    /// 热管理节流器：防止设备过热
+    private let thermalThrottler = ThermalThrottler()
 
     init(
         embeddingService: EmbeddingService,
@@ -181,6 +184,9 @@ actor IndexEngine {
             }
 
             for asset in sortedAssets where entriesByID[asset.assetLocalIdentifier] == nil {
+                // 热节流：过热时暂停，冷却后恢复
+                try await thermalThrottler.waitIfNeeded()
+                
                 let imageData = try await resolveImageData(for: asset)
                 let embedding = try await embeddingService.embedImage(imageData)
                 let entry = try IndexEntry(
@@ -204,6 +210,9 @@ actor IndexEngine {
                 if let progress = checkpoint.progress {
                     await progressHandler?(.building(progress: progress))
                 }
+                
+                // 推理后让出 CPU，避免持续高负载
+                await thermalThrottler.yieldBetweenInferences()
             }
 
             let finalEntries = sortedAssets.compactMap { entriesByID[$0.assetLocalIdentifier] }

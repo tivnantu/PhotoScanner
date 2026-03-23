@@ -9,6 +9,7 @@
 
 import Foundation
 import OSLog
+import CryptoKit
 
 // MARK: - EmbeddingService
 
@@ -26,6 +27,12 @@ actor EmbeddingService {
     // MARK: - 依赖
 
     private let plugin: ModelPlugin
+    
+    /// 图像向量缓存（避免重复计算）
+    private let imageCache: EmbeddingCache
+    
+    /// 文本向量缓存（避免重复计算）
+    private let textCache: EmbeddingCache
 
     // MARK: - 状态
 
@@ -46,6 +53,8 @@ actor EmbeddingService {
 
     init(plugin: ModelPlugin) {
         self.plugin = plugin
+        self.imageCache = EmbeddingCache(config: .image)
+        self.textCache = EmbeddingCache(config: .text)
     }
 
     // MARK: - 生命周期
@@ -103,10 +112,27 @@ actor EmbeddingService {
         guard !imageData.isEmpty else {
             throw PSError.invalidInput("图像数据不能为空")
         }
+        
+        // 缓存键：使用 SHA256 哈希
+        let cacheKey = Self.cacheKey(for: imageData)
+        
+        // 尝试从缓存获取
+        if let cached = await imageCache.get(for: cacheKey) {
+            Logger.model.debug("图像 embedding 缓存命中: \(cacheKey.prefix(8))")
+            return cached.values
+        }
 
+        // 计算并缓存
         let raw = try await plugin.encodeImage(imageData)
         let validated = try validate(vector: raw, source: "图像 embedding")
-        return try normalize(validated, source: "图像 embedding")
+        let normalized = try normalize(validated, source: "图像 embedding")
+        
+        // 写入缓存
+        let embedding = Embedding(values: normalized)
+        await imageCache.set(embedding, for: cacheKey)
+        Logger.model.debug("图像 embedding 已缓存: \(cacheKey.prefix(8))")
+        
+        return normalized
     }
 
     /// 将文本编码为 embedding 向量
@@ -120,13 +146,55 @@ actor EmbeddingService {
         guard !sanitizedText.isEmpty else {
             throw PSError.invalidInput("文本不能为空")
         }
+        
+        // 缓存键：使用 SHA256 哈希
+        let cacheKey = Self.cacheKey(for: sanitizedText)
+        
+        // 尝试从缓存获取
+        if let cached = await textCache.get(for: cacheKey) {
+            Logger.model.debug("文本 embedding 缓存命中: \(cacheKey.prefix(8))")
+            return cached.values
+        }
 
+        // 计算并缓存
         let raw = try await plugin.encodeText(sanitizedText)
         let validated = try validate(vector: raw, source: "文本 embedding")
-        return try normalize(validated, source: "文本 embedding")
+        let normalized = try normalize(validated, source: "文本 embedding")
+        
+        // 写入缓存
+        let embedding = Embedding(values: normalized)
+        await textCache.set(embedding, for: cacheKey)
+        Logger.model.debug("文本 embedding 已缓存: \(cacheKey.prefix(8))")
+        
+        return normalized
+    }
+    
+    /// 清除所有缓存
+    func clearCache() async {
+        await imageCache.clearAll()
+        await textCache.clearAll()
+        Logger.model.info("EmbeddingService 缓存已清除")
+    }
+    
+    /// 获取缓存统计信息
+    func cacheStats() async -> (imageCount: Int, textCount: Int) {
+        let imageCount = await imageCache.memoryCount
+        let textCount = await textCache.memoryCount
+        return (imageCount, textCount)
     }
 
     // MARK: - 内部工具
+
+    /// 生成缓存键
+    private nonisolated static func cacheKey(for data: Data) -> String {
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+    
+    private nonisolated static func cacheKey(for text: String) -> String {
+        let hash = SHA256.hash(data: text.data(using: .utf8) ?? Data())
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
 
     /// 检查服务是否就绪
     private func ensureReady() throws {
