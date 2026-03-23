@@ -8,6 +8,7 @@ struct SearchHomeView: View {
     @State private var showImageSearch: Bool = false
     @State private var selectedPickerItem: PhotosPickerItem?
     @State private var recentSearches: [String] = ["风景", "人物", "建筑", "美食", "旅行", "宠物"]
+    @Namespace private var searchTransition
     
     var body: some View {
         NavigationStack {
@@ -41,7 +42,9 @@ struct SearchHomeView: View {
                             .textFieldStyle(.plain)
                             .onSubmit {
                                 if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-                                    showTextSearch = true
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        showTextSearch = true
+                                    }
                                 }
                             }
                         
@@ -56,6 +59,7 @@ struct SearchHomeView: View {
                     .padding(.vertical, 12)
                     .background(Color(.systemGray6))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .matchedGeometryEffect(id: "searchBar", in: searchTransition)
                     
                     // 图片搜索按钮
                     PhotosPicker(selection: $selectedPickerItem, matching: .images) {
@@ -79,7 +83,9 @@ struct SearchHomeView: View {
                         ForEach(recentSearches, id: \.self) { search in
                             Button(action: {
                                 searchText = search
-                                showTextSearch = true
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    showTextSearch = true
+                                }
                             }) {
                                 Text(search)
                                     .font(.subheadline)
@@ -97,14 +103,16 @@ struct SearchHomeView: View {
                 Spacer()
             }
             .navigationDestination(isPresented: $showTextSearch) {
-                TextSearchResultsView(initialQuery: searchText)
+                TextSearchResultsView(initialQuery: searchText, namespace: searchTransition)
             }
             .navigationDestination(isPresented: $showImageSearch) {
                 ImageSearchView()
             }
             .onChange(of: selectedPickerItem) { _, newItem in
                 if newItem != nil {
-                    showImageSearch = true
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        showImageSearch = true
+                    }
                 }
             }
         }
