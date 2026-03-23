@@ -9,6 +9,7 @@
 |------|------|
 | `ARCHITECTURE.md` | 分层设计、依赖规则、核心协议、数据链路、并发模型 |
 | `MODEL_SPECS.md` | Chinese-CLIP 模型技术参数、选型依据、来源链接 |
+| `BASELINE_TESTS.md` | Baseline Test 的目标、覆盖范围、产物位置与执行方式 |
 
 ## 维护原则
 

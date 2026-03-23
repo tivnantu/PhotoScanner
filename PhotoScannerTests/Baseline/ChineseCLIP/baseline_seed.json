@@ -1,0 +1,69 @@
+{
+  "baseline_version": "1.0",
+  "model": {
+    "id": "chinese-clip-vit-b-16",
+    "image_size": 224,
+    "context_length": 52,
+    "embedding_dimension": 512,
+    "image_mean": [0.48145466, 0.4578275, 0.40821073],
+    "image_std": [0.26862954, 0.26130258, 0.27577711],
+    "paths": {
+      "image_encoder": "PhotoScanner/Resources/ModelAssets/ChineseCLIP/ViT-B-16/ONNX/FP32/image_encoder.onnx",
+      "text_encoder": "PhotoScanner/Resources/ModelAssets/ChineseCLIP/ViT-B-16/ONNX/FP32/text_encoder.onnx",
+      "vocab": "PhotoScanner/Resources/ModelAssets/ChineseCLIP/ViT-B-16/vocab.txt"
+    }
+  },
+  "tolerances": {
+    "token_ids_exact_match": true,
+    "text_embedding_cosine_min": 0.9999,
+    "image_preprocess_cosine_min": 0.998,
+    "image_preprocess_abs_diff_max": 1.0,
+    "image_embedding_cosine_min": 0.999,
+    "similarity_abs_diff_max": 0.002
+  },
+  "image_cases": [
+    {
+      "id": "festival",
+      "image": "images/festival.jpg"
+    }
+  ],
+  "text_cases": [
+    {
+      "id": "festival_short",
+      "text": "节日庆典"
+    },
+    {
+      "id": "festival_description",
+      "text": "热闹的人群和节日表演"
+    },
+    {
+      "id": "festival_negative",
+      "text": "猫在沙发上睡觉"
+    },
+    {
+      "id": "mixed_hello",
+      "text": "Hello世界"
+    },
+    {
+      "id": "accent_case",
+      "text": "Café"
+    }
+  ],
+  "similarity_pairs": [
+    {
+      "id": "festival_vs_short",
+      "image_case_id": "festival",
+      "text_case_id": "festival_short"
+    },
+    {
+      "id": "festival_vs_description",
+      "image_case_id": "festival",
+      "text_case_id": "festival_description"
+    },
+    {
+      "id": "festival_vs_negative",
+      "image_case_id": "festival",
+      "text_case_id": "festival_negative"
+    }
+  ]
+}

@@ -11,14 +11,30 @@
 		133284B12F7055010079B5B5 /* onnxruntime_extensions in Frameworks */ = {isa = PBXBuildFile; productRef = 133284B02F7055010079B5B5 /* onnxruntime_extensions */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		13C0571B2F711F7C004D607C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1332846E2F7036A60079B5B5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 133284752F7036A60079B5B5;
+			remoteInfo = PhotoScanner;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		133284762F7036A60079B5B5 /* PhotoScanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhotoScanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		13C057172F711F7C004D607C /* PhotoScannerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PhotoScannerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		133284782F7036A60079B5B5 /* PhotoScanner */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = PhotoScanner;
+			sourceTree = "<group>";
+		};
+		13C057182F711F7C004D607C /* PhotoScannerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PhotoScannerTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -33,6 +49,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		13C057142F711F7C004D607C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -40,6 +63,7 @@
 			isa = PBXGroup;
 			children = (
 				133284782F7036A60079B5B5 /* PhotoScanner */,
+				13C057182F711F7C004D607C /* PhotoScannerTests */,
 				133284772F7036A60079B5B5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -48,6 +72,7 @@
 			isa = PBXGroup;
 			children = (
 				133284762F7036A60079B5B5 /* PhotoScanner.app */,
+				13C057172F711F7C004D607C /* PhotoScannerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -78,6 +103,29 @@
 			productReference = 133284762F7036A60079B5B5 /* PhotoScanner.app */;
 			productType = "com.apple.product-type.application";
 		};
+		13C057162F711F7C004D607C /* PhotoScannerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 13C0571F2F711F7C004D607C /* Build configuration list for PBXNativeTarget "PhotoScannerTests" */;
+			buildPhases = (
+				13C057132F711F7C004D607C /* Sources */,
+				13C057142F711F7C004D607C /* Frameworks */,
+				13C057152F711F7C004D607C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				13C0571C2F711F7C004D607C /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				13C057182F711F7C004D607C /* PhotoScannerTests */,
+			);
+			name = PhotoScannerTests;
+			packageProductDependencies = (
+			);
+			productName = PhotoScannerTests;
+			productReference = 13C057172F711F7C004D607C /* PhotoScannerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -90,6 +138,10 @@
 				TargetAttributes = {
 					133284752F7036A60079B5B5 = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					13C057162F711F7C004D607C = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 133284752F7036A60079B5B5;
 					};
 				};
 			};
@@ -111,12 +163,20 @@
 			projectRoot = "";
 			targets = (
 				133284752F7036A60079B5B5 /* PhotoScanner */,
+				13C057162F711F7C004D607C /* PhotoScannerTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		133284742F7036A60079B5B5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		13C057152F711F7C004D607C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -133,7 +193,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		13C057132F711F7C004D607C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		13C0571C2F711F7C004D607C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 133284752F7036A60079B5B5 /* PhotoScanner */;
+			targetProxy = 13C0571B2F711F7C004D607C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		1332847F2F7036A70079B5B5 /* Debug */ = {
@@ -323,6 +398,48 @@
 			};
 			name = Release;
 		};
+		13C0571D2F711F7C004D607C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = J85GN9SN8Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.tivnantu.PhotoScannerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PhotoScanner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PhotoScanner";
+			};
+			name = Debug;
+		};
+		13C0571E2F711F7C004D607C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = J85GN9SN8Y;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.tivnantu.PhotoScannerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PhotoScanner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PhotoScanner";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -340,6 +457,15 @@
 			buildConfigurations = (
 				133284822F7036A70079B5B5 /* Debug */,
 				133284832F7036A70079B5B5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		13C0571F2F711F7C004D607C /* Build configuration list for PBXNativeTarget "PhotoScannerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				13C0571D2F711F7C004D607C /* Debug */,
+				13C0571E2F711F7C004D607C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -3,134 +3,41 @@
 // PhotoScanner
 //
 // Bundle 内资源定位。
-// 统一提供类型安全的路径查找，避免散落的 Bundle.main.path(forResource:) 调用。
+// 当前阶段只处理少量固定模型资源，采用最直接、最确定的查找方式。
 //
 
 import Foundation
 import OSLog
 
-struct BundleResourceDescriptor: Sendable {
-    let name: String
-    let ext: String
-    let subdirectory: String?
-
-    var displayName: String {
-        if let subdirectory, !subdirectory.isEmpty {
-            return "\(subdirectory)/\(name).\(ext)"
-        }
-        return "\(name).\(ext)"
-    }
-}
-
 enum BundleResource {
 
-    /// 在 main bundle 中定位资源文件，找不到时抛出 PSError.resourceNotFound
-    ///
-    /// - Parameters:
-    ///   - name: 文件名（不含扩展名）
-    ///   - ext: 扩展名
-    ///   - subdirectory: 可选子目录路径
-    /// - Returns: 资源文件的完整路径
-    nonisolated static func path(
+    /// 在 bundle 根目录中定位必需资源，找不到时抛出明确错误。
+    nonisolated static func requiredPath(
         forResource name: String,
         withExtension ext: String,
-        subdirectory: String? = nil
+        bundle: Bundle = .main
     ) throws -> String {
-        try path(for: BundleResourceDescriptor(name: name, ext: ext, subdirectory: subdirectory))
-    }
-
-    /// 按资源描述定位资源文件，返回完整路径
-    nonisolated static func path(for descriptor: BundleResourceDescriptor) throws -> String {
-        try url(for: descriptor).path
-    }
-
-    /// 在 main bundle 中定位资源文件，返回 URL
-    static func url(
-        forResource name: String,
-        withExtension ext: String,
-        subdirectory: String? = nil
-    ) throws -> URL {
-        try url(for: BundleResourceDescriptor(name: name, ext: ext, subdirectory: subdirectory))
-    }
-
-    /// 按资源描述定位资源文件，优先走精确目录，失败后回退到 bundle 内递归搜索
-    static func url(for descriptor: BundleResourceDescriptor) throws -> URL {
-        if let directURL = Bundle.main.url(
-            forResource: descriptor.name,
-            withExtension: descriptor.ext,
-            subdirectory: descriptor.subdirectory
-        ) {
-            return directURL
+        guard let path = bundle.path(forResource: name, ofType: ext) else {
+            Logger.app.error("Bundle 资源未找到: \(name).\(ext)")
+            throw PSError.resourceNotFound(
+                name: name,
+                extension: ext,
+                subdirectory: nil
+            )
         }
-
-        if let fallbackURL = fallbackSearchURL(for: descriptor) {
-            Logger.app.notice("Bundle 资源通过回退搜索命中: \(descriptor.displayName)")
-            return fallbackURL
-        }
-
-        Logger.app.error("Bundle 资源未找到: \(descriptor.displayName)")
-        throw PSError.resourceNotFound(
-            name: descriptor.name,
-            extension: descriptor.ext,
-            subdirectory: descriptor.subdirectory
-        )
+        return path
     }
 
-    private static func fallbackSearchURL(for descriptor: BundleResourceDescriptor) -> URL? {
-        guard let resourceURL = Bundle.main.resourceURL else { return nil }
-
-        let targetFileName = "\(descriptor.name).\(descriptor.ext)"
-        let enumerator = FileManager.default.enumerator(
-            at: resourceURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
-
-        while let fileURL = enumerator?.nextObject() as? URL {
-            guard fileURL.lastPathComponent == targetFileName else { continue }
-            return fileURL
-        }
-
-        return nil
-    }
-}
-
-// MARK: - ChineseCLIP 资源路径
-
-extension BundleResource {
-
-    private enum ChineseCLIPResource {
-        static let modelSubdirectory = "ModelAssets/ChineseCLIP/ViT-B-16/ONNX/FP32"
-        static let vocabSubdirectory = "ModelAssets/ChineseCLIP/ViT-B-16"
-
-        static let imageEncoder = BundleResourceDescriptor(
-            name: "image_encoder",
-            ext: "onnx",
-            subdirectory: modelSubdirectory
-        )
-
-        static let textEncoder = BundleResourceDescriptor(
-            name: "text_encoder",
-            ext: "onnx",
-            subdirectory: modelSubdirectory
-        )
-
-        static let vocab = BundleResourceDescriptor(
-            name: "vocab",
-            ext: "txt",
-            subdirectory: vocabSubdirectory
-        )
-    }
-
+    /// 当前工程中的模型资源通过 target membership 打入 app bundle 根目录。
     nonisolated static func imageEncoderPath() throws -> String {
-        try path(for: ChineseCLIPResource.imageEncoder)
+        try requiredPath(forResource: "image_encoder", withExtension: "onnx")
     }
 
     nonisolated static func textEncoderPath() throws -> String {
-        try path(for: ChineseCLIPResource.textEncoder)
+        try requiredPath(forResource: "text_encoder", withExtension: "onnx")
     }
 
     nonisolated static func vocabPath() throws -> String {
-        try path(for: ChineseCLIPResource.vocab)
+        try requiredPath(forResource: "vocab", withExtension: "txt")
     }
 }

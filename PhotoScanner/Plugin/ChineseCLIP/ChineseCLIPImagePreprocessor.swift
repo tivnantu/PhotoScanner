@@ -64,7 +64,7 @@ enum ChineseCLIPImagePreprocessor {
         let bytesPerRow = width * bytesPerPixel
         let bitsPerComponent = 8
         let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let colorSpace = resolvedRGBColorSpace(for: cgImage)
 
         var rgbaBytes = [UInt8](repeating: 0, count: height * bytesPerRow)
 
@@ -81,11 +81,19 @@ enum ChineseCLIPImagePreprocessor {
         }
 
         context.interpolationQuality = .high
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: 1, y: -1)
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
         return rgbaBytes
+    }
+
+    nonisolated private static func resolvedRGBColorSpace(for cgImage: CGImage) -> CGColorSpace {
+        if let sourceColorSpace = cgImage.colorSpace,
+           sourceColorSpace.model == .rgb,
+           sourceColorSpace.numberOfComponents == 3 {
+            return sourceColorSpace
+        }
+
+        return CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
     }
 
     // MARK: - Tensor

@@ -27,9 +27,13 @@
 
 ## 构建
 
-- Xcode 26.2+，iOS 26.0+
+- Xcode 26.0+，iOS 26.0+
 - 真机构建（模型文件约 726MB，通过 Git LFS 管理）
 
 ## 项目知识
 
-工程细节、模型参数、数据链路等沉淀在 [`docs/context/`](docs/context/) 目录。
+工程细节、模型参数、数据链路与 Baseline Test 说明等沉淀在 [`docs/context/`](docs/context/) 目录：
+
+- 架构设计：[`docs/context/ARCHITECTURE.md`](docs/context/ARCHITECTURE.md)
+- 模型参数：[`docs/context/MODEL_SPECS.md`](docs/context/MODEL_SPECS.md)
+- Baseline Test：[`docs/context/BASELINE_TESTS.md`](docs/context/BASELINE_TESTS.md)
