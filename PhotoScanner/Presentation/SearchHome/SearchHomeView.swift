@@ -89,15 +89,9 @@ struct SearchHomeView: View {
                             .fill(Color.blue.opacity(0.1))
                             .frame(width: 80, height: 80)
                         
-                        Image(systemName: "doc.text.image")
+                        Image(systemName: "photo.fill")
                             .font(.system(size: 36))
                             .foregroundStyle(.blue)
-                        
-                        // 星星装饰
-                        Image(systemName: "sparkle")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.blue)
-                            .offset(x: 20, y: -20)
                     }
                     
                     // 应用名
@@ -202,69 +196,70 @@ struct SearchHomeView: View {
     
     @ViewBuilder
     private var historySection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("搜索历史")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 
                 Spacer()
                 
-                Button("清除") {
-                    showClearHistoryAlert = true
+                if !searchHistory.isEmpty {
+                    Button("清除") {
+                        showClearHistoryAlert = true
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
             }
             
-            VStack(spacing: 0) {
-                ForEach(Array(searchHistory.enumerated()), id: \.element.id) { index, item in
-                    historyRow(item: item, isLast: index == searchHistory.count - 1)
+            if !searchHistory.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(searchHistory.enumerated()), id: \.element.id) { index, item in
+                        historyRow(item: item, isLast: index == searchHistory.count - 1)
+                    }
                 }
+                .background(Color(.systemGray6).opacity(0.5))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-            .background(Color(.systemGray6))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .padding(.horizontal, 20)
     }
     
     @ViewBuilder
     private func historyRow(item: SearchHistoryItem, isLast: Bool) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "clock")
-                .font(.system(size: 16))
-                .foregroundStyle(.secondary)
-            
-            VStack(alignment: .leading, spacing: 4) {
+        Button(action: {
+            searchText = item.query
+            Task {
+                await performTextSearch()
+            }
+        }) {
+            HStack(spacing: 10) {
+                Image(systemName: "clock")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.tertiary)
+                
                 Text(item.query)
-                    .font(.body)
+                    .font(.subheadline)
                     .foregroundStyle(.primary)
                 
-                Text("\(item.resultCount)张 \(item.timeAgo)")
+                Spacer()
+                
+                Text("\(item.resultCount)张")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
             }
-            
-            Spacer()
-            
-            Button(action: {
-                Task {
-                    await deleteHistoryItem(item)
-                }
-            }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .buttonStyle(.plain)
         .background(isLast ? Color.clear : Color(.systemBackground))
         .overlay(
             Rectangle()
-                .fill(Color(.systemGray5))
+                .fill(Color(.systemGray5).opacity(0.5))
                 .frame(height: 0.5)
-                .padding(.leading, 44)
+                .padding(.leading, 36)
             , alignment: .bottom
         )
     }
