@@ -49,6 +49,17 @@ enum PSError: Error, Equatable {
     /// 存储文件结构损坏或内容非法
     case storageCorrupted(String)
 
+    // MARK: - 图片处理
+
+    /// 无效图片（无法获取 CGImage）
+    case invalidImage
+
+    /// 图片缩放失败
+    case imageResizeFailed
+
+    /// 图片解码失败
+    case imageDecodeFailed(String)
+
     // MARK: - 通用
 
     /// 未知错误（附带说明）
@@ -83,6 +94,12 @@ extension PSError: LocalizedError {
             return "资源不可读: \(path)（\(reason)）"
         case .storageCorrupted(let detail):
             return "存储数据损坏: \(detail)"
+        case .invalidImage:
+            return "无效图片: 无法获取 CGImage"
+        case .imageResizeFailed:
+            return "图片缩放失败"
+        case .imageDecodeFailed(let reason):
+            return "图片解码失败: \(reason)"
         case .unknown(let detail):
             return "未知错误: \(detail)"
         }

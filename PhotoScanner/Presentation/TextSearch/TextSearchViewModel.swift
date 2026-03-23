@@ -564,6 +564,8 @@ final class TextSearchViewModel {
             return "图片资源读取失败，请检查系统相册权限或使用已导入图片重新建索引。"
         case .storageCorrupted:
             return "本地索引文件异常，请使用已导入图片重新建索引；必要时清空后重试。"
+        case .invalidImage, .imageResizeFailed, .imageDecodeFailed:
+            return "图片处理失败，请检查图片是否损坏或重新建立索引。"
         case .unsupportedOperation:
             return "当前操作暂不支持，请更换操作方式后重试。"
         case .unknown:
@@ -622,6 +624,14 @@ final class TextSearchViewModel {
                 detail: "请调整操作方式后重试。",
                 tone: .warning,
                 actionTitle: nil
+            )
+        case .invalidImage, .imageResizeFailed, .imageDecodeFailed:
+            return TextImageFeedback(
+                systemImage: "photo.badge.exclamationmark",
+                title: "图片处理失败",
+                detail: "图片预处理遇到问题，请稍后重试或重新建立索引。",
+                tone: .warning,
+                actionTitle: "重试搜索"
             )
         case .unknown:
             return TextImageFeedback(

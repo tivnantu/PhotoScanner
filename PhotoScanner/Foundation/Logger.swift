@@ -28,4 +28,7 @@ extension Logger {
 
     /// UI 交互、导航
     nonisolated static let ui = Logger(subsystem: subsystem, category: "UI")
+
+    /// 图片预处理、降采样、缓存
+    nonisolated static let vision = Logger(subsystem: subsystem, category: "Vision")
 }
