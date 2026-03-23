@@ -1,51 +1,100 @@
 import SwiftUI
 
-/// 工具页 - 卡片网格布局
+/// 工具页（发现页）- 参考UI重新设计
 struct ToolsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
-                    // 第一行：两个卡片
-                    HStack(spacing: 16) {
-                        ToolCard(
-                            title: "文图相似度",
-                            icon: "text.below.photo",
-                            gradient: Gradient(colors: [
-                                Color(red: 155/255, green: 142/255, blue: 212/255),
-                                Color(red: 180/255, green: 158/255, blue: 217/255)
-                            ])
-                        ) {
-                            // TODO: 导航到文图相似度页面
+                VStack(spacing: 24) {
+                    // 功能卡片网格
+                    VStack(spacing: 12) {
+                        HStack(spacing: 12) {
+                            ToolCard(
+                                title: "图文相似度",
+                                subtitle: "照片与文字匹配度",
+                                icon: "doc.text.image",
+                                gradient: Gradient(colors: [
+                                    Color(red: 88/255, green: 166/255, blue: 255/255),
+                                    Color(red: 126/255, green: 182/255, blue: 255/255)
+                                ])
+                            ) {
+                                // TODO: 导航到图文相似度页面
+                            }
+                            
+                            ToolCard(
+                                title: "图图相似度",
+                                subtitle: "两张照片对比",
+                                icon: "photo.on.rectangle",
+                                gradient: Gradient(colors: [
+                                    Color(red: 255/255, green: 149/255, blue: 0/255),
+                                    Color(red: 255/255, green: 179/255, blue: 64/255)
+                                ])
+                            ) {
+                                // TODO: 导航到图图相似度页面
+                            }
                         }
                         
-                        ToolCard(
-                            title: "图图相似度",
-                            icon: "photo.on.rectangle",
-                            gradient: Gradient(colors: [
-                                Color(red: 212/255, green: 165/255, blue: 176/255),
-                                Color(red: 201/255, green: 160/255, blue: 176/255)
-                            ])
-                        ) {
-                            // TODO: 导航到图图相似度页面
+                        HStack(spacing: 12) {
+                            ToolCard(
+                                title: "相似聚类",
+                                subtitle: "自动发现相似图片簇",
+                                icon: "square.grid.3x3.fill",
+                                gradient: Gradient(colors: [
+                                    Color(red: 175/255, green: 82/255, blue: 222/255),
+                                    Color(red: 191/255, green: 114/255, blue: 234/255)
+                                ])
+                            ) {
+                                // TODO: 导航到相似聚类页面
+                            }
+                            
+                            ToolCard(
+                                title: "以图搜图",
+                                subtitle: "选张照片找相似",
+                                icon: "photo.fill",
+                                gradient: Gradient(colors: [
+                                    Color(red: 52/255, green: 199/255, blue: 89/255),
+                                    Color(red: 94/255, green: 212/255, blue: 123/255)
+                                ])
+                            ) {
+                                // TODO: 导航到以图搜图页面
+                            }
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
                     
-                    // 第二行：一个跨列卡片
-                    ToolCard(
-                        title: "相似图片聚类",
-                        icon: "square.grid.3x3.fill",
-                        gradient: Gradient(colors: [
-                            Color(red: 138/255, green: 180/255, blue: 217/255),
-                            Color(red: 160/255, green: 196/255, blue: 227/255)
-                        ])
-                    ) {
-                        // TODO: 导航到相似图片聚类页面
+                    // 即将推出
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("即将推出")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 16)
+                        
+                        VStack(spacing: 0) {
+                            ComingSoonRow(
+                                title: "人脸分组",
+                                subtitle: "按人物自动分组",
+                                icon: "person.2.fill"
+                            )
+                            
+                            Divider()
+                                .padding(.leading, 44)
+                            
+                            ComingSoonRow(
+                                title: "地点相册",
+                                subtitle: "按拍摄地点组织",
+                                icon: "location.fill"
+                            )
+                        }
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 16)
                     }
                 }
-                .padding()
+                .padding(.bottom, 20)
             }
-            .navigationTitle("工具")
+            .navigationTitle("发现")
+            .navigationBarTitleDisplayMode(.large)
         }
     }
 }
@@ -54,33 +103,88 @@ struct ToolsView: View {
 
 struct ToolCard: View {
     let title: String
+    let subtitle: String
     let icon: String
     let gradient: Gradient
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                // 图标
                 Image(systemName: icon)
-                    .font(.system(size: 36))
+                    .font(.system(size: 28))
                     .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(
+                        LinearGradient(
+                            gradient: gradient,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.white)
+                Spacer()
+                
+                // 标题和副标题
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 160)
-            .background(
-                LinearGradient(
-                    gradient: gradient,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
+    }
+}
+
+// MARK: - Coming Soon Row
+
+struct ComingSoonRow: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // 图标
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+            
+            // 文字
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+            
+            // 即将推出标签
+            Text("即将推出")
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(.systemGray5))
+                .foregroundStyle(.secondary)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 }
 
