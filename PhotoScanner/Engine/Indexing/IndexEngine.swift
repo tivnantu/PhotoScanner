@@ -74,10 +74,6 @@ actor IndexEngine {
         try await indexStore.loadImportedAssets()
     }
 
-    func loadImageData(for assetLocalIdentifier: String) async throws -> Data? {
-        try await indexStore.importedAssetData(for: assetLocalIdentifier)
-    }
-
     func addAssetsAndRebuild(
         _ inputs: [IndexedAssetInput],
         progressHandler: (@Sendable (IndexBuildState) async -> Void)? = nil
@@ -251,46 +247,32 @@ actor IndexEngine {
     }
 
     private func resolveImageData(for asset: StoredIndexedAsset) async throws -> Data {
-        if let photoLibraryAssetIdentifier = asset.photoLibraryAssetIdentifier,
-           let imageData = await photoLibraryAssetProvider.originalImageData(for: photoLibraryAssetIdentifier) {
-            Logger.index.debug(
-                "构建取图: \(Self.shortIdentifier(asset.assetLocalIdentifier)) 使用系统相册原图，photoIdentifier: \(Self.shortIdentifier(photoLibraryAssetIdentifier))"
+        // 所有图片必须通过系统相册获取
+        guard let photoLibraryAssetIdentifier = asset.photoLibraryAssetIdentifier else {
+            throw PSError.resourceUnreadable(
+                path: asset.assetLocalIdentifier,
+                reason: "图片没有系统相册标识，无法从相册获取"
             )
-            return imageData
         }
-
-        if let cachedData = try await indexStore.importedAssetData(for: asset.assetLocalIdentifier) {
-            if let photoLibraryAssetIdentifier = asset.photoLibraryAssetIdentifier {
-                Logger.index.debug(
-                    "构建取图: \(Self.shortIdentifier(asset.assetLocalIdentifier)) 回退本地缓存，photoIdentifier: \(Self.shortIdentifier(photoLibraryAssetIdentifier))"
-                )
-            } else {
-                Logger.index.debug(
-                    "构建取图: \(Self.shortIdentifier(asset.assetLocalIdentifier)) 无真实资产标识，使用本地缓存"
-                )
-            }
-            return cachedData
-        }
-
-        if let photoLibraryAssetIdentifier = asset.photoLibraryAssetIdentifier {
+        
+        guard let imageData = await photoLibraryAssetProvider.originalImageData(for: photoLibraryAssetIdentifier) else {
             let accessState = await photoLibraryAssetProvider.currentAccessState()
             let reason: String
             if accessState.hasReadAccess {
-                reason = "系统相册资源已失效，且本地缓存缺失"
+                reason = "系统相册资源已失效"
             } else {
-                reason = "系统相册当前不可访问，且本地缓存缺失"
+                reason = "系统相册当前不可访问"
             }
             Logger.index.error(
                 "构建取图失败: \(Self.shortIdentifier(asset.assetLocalIdentifier))，photoIdentifier: \(Self.shortIdentifier(photoLibraryAssetIdentifier))，原因: \(reason)"
             )
             throw PSError.resourceUnreadable(path: photoLibraryAssetIdentifier, reason: reason)
         }
-
-        Logger.index.error("构建取图失败: \(Self.shortIdentifier(asset.assetLocalIdentifier))，原因: 导入图片缓存缺失")
-        throw PSError.resourceUnreadable(
-            path: asset.assetLocalIdentifier,
-            reason: "导入图片缓存缺失"
+        
+        Logger.index.debug(
+            "构建取图: \(Self.shortIdentifier(asset.assetLocalIdentifier)) 从系统相册获取原图，photoIdentifier: \(Self.shortIdentifier(photoLibraryAssetIdentifier))"
         )
+        return imageData
     }
 
     private static func modelFingerprint(for descriptor: ModelDescriptor) -> String {

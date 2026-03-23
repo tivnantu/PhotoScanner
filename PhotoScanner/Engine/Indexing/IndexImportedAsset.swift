@@ -57,6 +57,21 @@ struct StoredIndexedAsset: Sendable, Codable, Equatable, Identifiable {
         self.createdAt = existing?.createdAt ?? input.createdAt
         self.updatedAt = now
     }
+    
+    /// 用于从持久化数据重建（无 imageData）
+    init(
+        assetLocalIdentifier: String,
+        photoLibraryAssetIdentifier: String?,
+        assetFingerprint: String,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.assetLocalIdentifier = assetLocalIdentifier
+        self.photoLibraryAssetIdentifier = photoLibraryAssetIdentifier
+        self.assetFingerprint = assetFingerprint
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
 }
 
 enum IndexedAssetIdentity {

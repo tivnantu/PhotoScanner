@@ -38,7 +38,7 @@ struct TextImageSearchView: View {
 
     @ViewBuilder
     private func statusSection(_ viewModel: TextImageSearchViewModel) -> some View {
-        Section("索引状态") {
+        Section {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: viewModel.statusSystemImage)
                     .font(.title3)
@@ -59,10 +59,6 @@ struct TextImageSearchView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Label("当前已导入 \(viewModel.indexedCount) 张图片", systemImage: "photo.stack")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
                     if let actionTitle = viewModel.statusActionTitle {
                         Button(actionTitle) {
                             Task {
@@ -79,10 +75,10 @@ struct TextImageSearchView: View {
 
     @ViewBuilder
     private func importSection(_ viewModel: TextImageSearchViewModel) -> some View {
-        Section("建立索引") {
+        Section("图片管理") {
             PhotosPicker(
                 selection: $pickerItems,
-                maxSelectionCount: 30,
+                maxSelectionCount: nil,
                 matching: .images,
                 preferredItemEncoding: .automatic,
                 photoLibrary: .shared()
@@ -112,7 +108,7 @@ struct TextImageSearchView: View {
                     await viewModel.clearIndex()
                 }
             } label: {
-                Label("清空本地索引与导入图片", systemImage: "trash")
+                Label("清空所有数据", systemImage: "trash")
             }
             .disabled(viewModel.isBuilding || viewModel.indexedCount == 0)
 
@@ -202,7 +198,7 @@ struct TextImageSearchView: View {
 
     @ViewBuilder
     private func resultsSection(_ viewModel: TextImageSearchViewModel) -> some View {
-        Section("结果") {
+        Section("搜索结果") {
             if let feedback = viewModel.resultsFeedback {
                 feedbackCard(feedback) {
                     guard feedback.actionTitle != nil else { return }
@@ -225,10 +221,14 @@ struct TextImageSearchView: View {
                             Text(result.displayTitle)
                                 .font(.subheadline)
                                 .lineLimit(1)
-                            Text("\(result.sourceLabel) · 相似度：\(String(format: "%.4f", result.score))")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                            HStack(spacing: 8) {
+                                Text(result.sourceLabel)
+                                Text("匹配度 \(String(format: "%.0f%%", result.score * 100))")
+                                    .fontWeight(.medium)
+                            }
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                         }
                     }
                     .padding(.vertical, 4)

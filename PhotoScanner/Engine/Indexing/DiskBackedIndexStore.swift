@@ -66,8 +66,7 @@ actor DiskBackedIndexStore: IndexStore {
             let preferredIdentifier = input.assetLocalIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
             let existing = preferredIdentifier.flatMap { assetsByID[$0] }
             let asset = StoredIndexedAsset(input: input, existing: existing)
-            let dataURL = importedAssetDataURL(for: asset.assetLocalIdentifier)
-            try input.imageData.write(to: dataURL, options: .atomic)
+            // 不再写入 assets/*.bin，完全依赖系统相册
             assetsByID[asset.assetLocalIdentifier] = asset
         }
 
@@ -77,7 +76,7 @@ actor DiskBackedIndexStore: IndexStore {
 
         let photoLibraryBackedCount = allAssets.filter(\.isPhotoLibraryBacked).count
         Logger.index.info(
-            "导入图片已更新，当前累计 \(allAssets.count) 张，系统相册绑定 \(photoLibraryBackedCount) 张，本地缓存 \(allAssets.count - photoLibraryBackedCount) 张"
+            "导入图片元数据已更新，当前累计 \(allAssets.count) 张，系统相册绑定 \(photoLibraryBackedCount) 张"
         )
         return allAssets
     }
@@ -90,14 +89,6 @@ actor DiskBackedIndexStore: IndexStore {
         let data = try Data(contentsOf: assetsMetadataURL)
         let assets = try jsonDecoder.decode([StoredIndexedAsset].self, from: data)
         return assets.sorted { $0.assetLocalIdentifier < $1.assetLocalIdentifier }
-    }
-
-    func importedAssetData(for assetLocalIdentifier: String) async throws -> Data? {
-        let url = importedAssetDataURL(for: assetLocalIdentifier)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return nil
-        }
-        return try Data(contentsOf: url)
     }
 
     func saveChunk(_ entry: IndexEntry) async throws {
@@ -199,30 +190,13 @@ actor DiskBackedIndexStore: IndexStore {
         rootURL.appendingPathComponent("chunks", isDirectory: true)
     }
 
-    private var assetsDirectoryURL: URL {
-        rootURL.appendingPathComponent("assets", isDirectory: true)
-    }
-
     private var assetsMetadataURL: URL {
         rootURL.appendingPathComponent("assets.json")
-    }
-
-    private func chunkFileURL(for assetLocalIdentifier: String) -> URL {
-        chunksDirectoryURL
-            .appendingPathComponent(IndexedAssetIdentity.fileStem(for: assetLocalIdentifier))
-            .appendingPathExtension("json")
-    }
-
-    private func importedAssetDataURL(for assetLocalIdentifier: String) -> URL {
-        assetsDirectoryURL
-            .appendingPathComponent(IndexedAssetIdentity.fileStem(for: assetLocalIdentifier))
-            .appendingPathExtension("bin")
     }
 
     private func ensureDirectoryStructure() throws {
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: chunksDirectoryURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: assetsDirectoryURL, withIntermediateDirectories: true)
     }
 
     private func removeItemIfExists(at url: URL) throws {
