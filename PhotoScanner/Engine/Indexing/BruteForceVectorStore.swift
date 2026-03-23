@@ -71,6 +71,14 @@ actor BruteForceVectorStore: VectorStore {
         snapshot = nil
         Logger.index.info("VectorStore 已清空")
     }
+    
+    func getEmbedding(for assetId: String) async throws -> [Float]? {
+        guard let snapshot else {
+            return nil
+        }
+        
+        return snapshot.entries.first { $0.assetLocalIdentifier == assetId }?.embedding
+    }
 
     private func dotProduct(_ lhs: [Float], _ rhs: [Float]) throws -> Float {
         guard lhs.count == rhs.count else {

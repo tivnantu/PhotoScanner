@@ -18,5 +18,6 @@ protocol VectorStore: Sendable {
     func replaceSnapshot(_ snapshot: IndexSnapshot) async throws
     func loadSnapshot() async throws -> IndexSnapshot?
     func search(queryEmbedding: [Float], topK: Int) async throws -> [VectorSearchResult]
+    func getEmbedding(for assetId: String) async throws -> [Float]?
     func clear() async throws
 }
