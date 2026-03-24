@@ -741,11 +741,29 @@ class SettingsViewModel {
         // 获取真实图库总量
         totalLibraryCount = await fetchTotalLibraryCount()
         
-        // 计算索引大小
+        // 计算索引目录的实际磁盘占用
+        let indexRootURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("PhotoScannerIndex", isDirectory: true) ?? FileManager.default.temporaryDirectory
+        
+        var indexTotalSize: Int64 = 0
+        if let enumerator = FileManager.default.enumerator(
+            at: indexRootURL,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let fileURL as URL in enumerator {
+                if let fileSize = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                    indexTotalSize += Int64(fileSize)
+                }
+            }
+        }
+        
+        let sizeInMB = Double(indexTotalSize) / 1024 / 1024
+        indexSize = sizeInMB > 0 ? String(format: "%.1f MB", sizeInMB) : "0 MB"
+        
+        // 同时更新 indexedCount
         if let snapshot = try? await indexStore.loadSnapshot() {
-            let embeddingSize = snapshot.entries.count * 512 * MemoryLayout<Float>.size
-            let sizeInMB = Double(embeddingSize) / 1024 / 1024
-            indexSize = String(format: "%.1f MB", sizeInMB)
+            indexedCount = snapshot.entries.count
         }
         
         // 计算真实缓存大小
