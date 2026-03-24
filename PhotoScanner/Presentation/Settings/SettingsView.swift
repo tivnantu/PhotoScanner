@@ -703,42 +703,52 @@ class SettingsViewModel {
 
         // 创建新的构建任务
         buildTask = Task { [weak self] in
-            guard let self = self else { return }
+            guard let self = self else {
+                Logger.app.warning("resumeBuilding: self 为 nil")
+                return
+            }
+
+            Logger.app.info("resumeBuilding: 开始执行构建任务")
 
             await MainActor.run {
                 self.isBuilding = true
                 self.canResumeBuilding = false
             }
-            
+
             do {
                 // 先检查是否有 checkpoint 可以恢复
+                Logger.app.info("resumeBuilding: 加载当前状态")
                 let state = await self.indexEngine.loadCurrentState()
-                
+                Logger.app.info("resumeBuilding: 当前状态 = \(state)")
+
                 switch state {
                 case .building, .preparing:
                     // 已有进行中的构建，恢复它
+                    Logger.app.info("resumeBuilding: 恢复进行中的构建")
                     _ = try await self.indexEngine.resumeBuildIfNeeded { [weak self] buildState in
                         Task { @MainActor in
                             self?.handleBuildStateUpdate(buildState)
                         }
                     }
-                    
+
                 case .idle, .ready:
                     // 没有进行中的构建，从相册导入并构建
+                    Logger.app.info("resumeBuilding: 从相册导入并构建")
                     try await self.startBuildingFromPhotoLibrary()
-                    
+
                 case .failed:
                     // 上次失败了，尝试恢复
+                    Logger.app.info("resumeBuilding: 恢复失败的构建")
                     _ = try await self.indexEngine.resumeBuildIfNeeded { [weak self] buildState in
                         Task { @MainActor in
                             self?.handleBuildStateUpdate(buildState)
                         }
                     }
                 }
-                
+
                 // 构建完成（或取消），刷新状态
                 await self.refreshStatus()
-                
+
                 await MainActor.run {
                     self.isBuilding = false
                     self.canResumeBuilding = false

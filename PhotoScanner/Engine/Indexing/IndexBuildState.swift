@@ -41,3 +41,20 @@ enum IndexBuildState: Sendable, Equatable {
     case ready(manifest: IndexManifest)
     case failed(message: String)
 }
+
+extension IndexBuildState: CustomStringConvertible {
+    var description: String {
+        switch self {
+        case .idle:
+            return "idle"
+        case .preparing:
+            return "preparing"
+        case .building(let progress):
+            return "building(\(progress.completedCount)/\(progress.totalCount))"
+        case .ready(let manifest):
+            return "ready(\(manifest.itemCount) items)"
+        case .failed(let message):
+            return "failed(\(message))"
+        }
+    }
+}
