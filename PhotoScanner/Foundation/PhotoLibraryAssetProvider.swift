@@ -65,11 +65,13 @@ actor PhotoLibraryAssetProvider {
             return nil
         }
 
-        guard currentAccessState().hasReadAccess else {
+        let accessState = currentAccessState()
+        guard accessState.hasReadAccess else {
+            Logger.vision.warning("previewResource: 权限不可用")
             await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 权限不可用")
             return nil
         }
-        
+
         // 优先从 ThumbnailCache 获取
         if let cache = thumbnailCache, let cachedImage = await cache.image(for: localIdentifier) {
             await recordPerformance(
@@ -84,32 +86,69 @@ actor PhotoLibraryAssetProvider {
         }
 
         guard let asset = fetchAsset(localIdentifier: localIdentifier) else {
-            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 资源不存在")
+            Logger.vision.warning("previewResource: 资源不存在 \(self.shortIdentifier(localIdentifier))")
+            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(self.shortIdentifier(localIdentifier)) 资源不存在")
             return nil
         }
 
-        let previewData = await requestImageData(
-            for: asset,
-            deliveryMode: .fastFormat,
-            resizeMode: .fast,
-            allowsNetworkAccess: false
-        )
-        
+        // 使用 PHImageManager 直接请求缩略图（更可靠）
+        let previewData = await requestThumbnailData(for: asset)
+
+        guard let data = previewData else {
+            Logger.vision.warning("previewResource: 缩略图请求失败 \(self.shortIdentifier(localIdentifier))")
+            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(self.shortIdentifier(localIdentifier)) 缩略图请求失败")
+            return nil
+        }
+
         // 写入缓存
-        if let cache = thumbnailCache, let data = previewData, let image = UIImage(data: data) {
+        if let cache = thumbnailCache, let image = UIImage(data: data) {
             await cache.store(image, for: localIdentifier)
         }
-        
+
         await recordPerformance(
             .photoLibraryPreview,
             startedAt: startedAt,
-            detail: "\(shortIdentifier(localIdentifier)) \(previewData == nil ? "未命中预览" : "已读取预览")"
+            detail: "\(shortIdentifier(localIdentifier)) 已读取缩略图"
         )
 
         return PhotoLibraryPreviewResource(
             displayTitle: displayTitle(for: asset),
-            previewData: previewData
+            previewData: data
         )
+    }
+
+    /// 请求缩略图数据（使用 PHImageManager，更可靠）
+    private func requestThumbnailData(for asset: PHAsset) async -> Data? {
+        await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .opportunistic
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = true  // 允许从 iCloud 下载
+            options.isSynchronous = false
+
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: CGSize(width: 224, height: 224),  // 模型输入尺寸
+                contentMode: .aspectFill,
+                options: options
+            ) { image, info in
+                let isCancelled = (info?[PHImageCancelledKey] as? Bool) ?? false
+                let hasError = info?[PHImageErrorKey] != nil
+
+                if isCancelled || hasError {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                guard let image = image else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                // 转换为 JPEG 数据
+                continuation.resume(returning: image.jpegData(compressionQuality: 0.8))
+            }
+        }
     }
 
     func originalImageData(for localIdentifier: String) async -> Data? {
