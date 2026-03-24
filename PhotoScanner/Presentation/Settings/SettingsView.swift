@@ -647,6 +647,9 @@ class SettingsViewModel {
     }
     
     func refreshStatus() async {
+        // 如果当前正在构建，不刷新状态（避免覆盖暂停状态）
+        guard !isBuilding else { return }
+
         // 获取索引状态
         let state = await indexEngine.loadCurrentState()
 
@@ -689,6 +692,11 @@ class SettingsViewModel {
             isThermalPaused = false
 
         case .idle:
+            // 如果已经有进度信息（暂停状态），不重置
+            if completedCount > 0 && canResumeBuilding {
+                // 保持暂停状态，不覆盖
+                return
+            }
             isBuilding = false
             canResumeBuilding = false
             buildPhase = .idle
@@ -747,12 +755,14 @@ class SettingsViewModel {
         // 取消构建任务
         buildTask?.cancel()
         buildTask = nil
-        
-        // 更新状态
+
+        // 更新状态（保留当前进度信息）
         isBuilding = false
         canResumeBuilding = true
-        
-        Logger.app.info("用户暂停索引构建")
+        // 注意：不重置 completedCount、totalCount、successCount、failedCount
+        // 这些值应该保持，以便 pausedCard 显示已建立的部分
+
+        Logger.app.info("用户暂停索引构建，已完成 \(self.completedCount)/\(self.totalCount) 张")
     }
     
     func resumeBuilding() {
