@@ -228,6 +228,15 @@ actor EmbeddingCache {
     private func writeToDisk(embedding: Embedding, key: String) {
         guard let url = diskURL(for: key) else { return }
 
+        // 确保父目录存在（系统可能清理 Caches 目录）
+        let parentDir = url.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+        } catch {
+            Logger.model.error("[EmbeddingCache] 创建缓存目录失败: \(error.localizedDescription)")
+            return
+        }
+
         let data = embedding.toData()
         do {
             try data.write(to: url, options: .atomic)
