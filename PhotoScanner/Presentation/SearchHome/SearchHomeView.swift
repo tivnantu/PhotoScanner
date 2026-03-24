@@ -15,11 +15,7 @@ struct SearchHomeView: View {
     @State private var imageSearchResults: [ImageSearchResult] = []
     @State private var searchFailure: String?
     @State private var searchMode: SearchMode = .none
-    
-    // 图片预览
-    @State private var selectedImage: UIImage?
-    @State private var showImagePreview: Bool = false
-    
+
     // 搜索建议
     private let searchSuggestions: [String] = ["海边日落", "猫咪", "美食", "旅行"]
     
@@ -47,11 +43,6 @@ struct SearchHomeView: View {
                 Spacer()
             }
             .ignoresSafeArea(.keyboard)
-            .fullScreenCover(isPresented: $showImagePreview) {
-                if let image = selectedImage {
-                    ImageViewer(image: image, isPresented: $showImagePreview)
-                }
-            }
             .onChange(of: searchText) { oldValue, newValue in
                 if newValue.isEmpty && searchMode == .text {
                     resetSearch()
@@ -381,36 +372,29 @@ struct SearchHomeView: View {
             spacing: 4
         ) {
             ForEach(searchResults) { result in
-                Button(action: {
-                    if let data = result.previewData, let image = UIImage(data: data) {
-                        selectedImage = image
-                        showImagePreview = true
+                VStack(spacing: 4) {
+                    if let previewData = result.previewData,
+                       let uiImage = UIImage(data: previewData) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 100, height: 100)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Rectangle()
+                            .fill(Color(.systemGray5))
+                            .frame(width: 100, height: 100)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay {
+                                Image(systemName: "photo")
+                                    .foregroundStyle(.secondary)
+                            }
                     }
-                }) {
-                    VStack(spacing: 4) {
-                        if let previewData = result.previewData,
-                           let uiImage = UIImage(data: previewData) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 100, height: 100)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                        } else {
-                            Rectangle()
-                                .fill(Color(.systemGray5))
-                                .frame(width: 100, height: 100)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                .overlay {
-                                    Image(systemName: "photo")
-                                        .foregroundStyle(.secondary)
-                                }
-                        }
-                        
-                        Text(String(format: "%.0f%%", result.score * 100))
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundStyle(scoreColor(for: result.score))
-                    }
+
+                    Text(String(format: "%.0f%%", result.score * 100))
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(scoreColor(for: result.score))
                 }
             }
         }
@@ -429,22 +413,17 @@ struct SearchHomeView: View {
             spacing: 4
         ) {
             ForEach(imageSearchResults) { result in
-                Button(action: {
-                    selectedImage = result.thumbnail
-                    showImagePreview = true
-                }) {
-                    VStack(spacing: 4) {
-                        Image(uiImage: result.thumbnail)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 100, height: 100)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        
-                        Text(String(format: "%.0f%%", result.similarity * 100))
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundStyle(scoreColor(for: result.similarity))
-                    }
+                VStack(spacing: 4) {
+                    Image(uiImage: result.thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 100, height: 100)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                    Text(String(format: "%.0f%%", result.similarity * 100))
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(scoreColor(for: result.similarity))
                 }
             }
         }
@@ -587,56 +566,6 @@ struct SearchHistoryItem: Identifiable {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         return formatter.localizedString(for: date, relativeTo: Date())
-    }
-}
-
-// MARK: - Image Viewer
-
-struct ImageViewer: View {
-    let image: UIImage
-    @Binding var isPresented: Bool
-    @State private var scale: CGFloat = 1.0
-    
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VStack {
-                HStack {
-                    Spacer()
-                    
-                    Button(action: {
-                        isPresented = false
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title)
-                            .foregroundStyle(.white)
-                    }
-                    .padding()
-                }
-                
-                Spacer()
-                
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .scaleEffect(scale)
-                    .gesture(
-                        MagnificationGesture()
-                            .onChanged { value in
-                                scale = value
-                            }
-                            .onEnded { _ in
-                                withAnimation {
-                                    scale = 1.0
-                                }
-                            }
-                    )
-                
-                Spacer()
-            }
-        }
-        .statusBar(hidden: true)
     }
 }
 

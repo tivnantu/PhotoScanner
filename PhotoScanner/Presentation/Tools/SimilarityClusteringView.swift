@@ -13,12 +13,11 @@ struct SimilarityClusteringView: View {
     @Environment(\.services) private var services
     
     @Bindable private var viewModel: SimilarityClusteringViewModel
-    @State private var selectedCluster: PhotoCluster?
-    
+
     init(services: AppServices) {
         viewModel = SimilarityClusteringViewModel(services: services)
     }
-    
+
     var body: some View {
         NavigationStack {
             Group {
@@ -49,9 +48,6 @@ struct SimilarityClusteringView: View {
                     }
                     .disabled(viewModel.isLoading || !viewModel.canCluster)
                 }
-            }
-            .sheet(item: $selectedCluster) { cluster in
-                ClusterDetailView(cluster: cluster, viewModel: viewModel)
             }
         }
         .task {
@@ -138,9 +134,6 @@ struct SimilarityClusteringView: View {
                             cluster: cluster,
                             thumbnail: viewModel.thumbnail(for: cluster.centerAssetId ?? "")
                         )
-                        .onTapGesture {
-                            selectedCluster = cluster
-                        }
                     }
                 }
                 .padding(.horizontal, 20)
