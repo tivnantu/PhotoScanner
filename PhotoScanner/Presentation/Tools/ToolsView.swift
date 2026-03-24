@@ -51,23 +51,14 @@ struct ToolsView: View {
             }
             .buttonStyle(ToolCardButtonStyle())
             
-            NavigationLink(destination: SimilarityClusteringView(services: services)) {
-                ToolGridCard(
-                    icon: "rectangle.3.group",
-                    title: "相似聚类",
-                    subtitle: "自动发现相似图片簇"
-                )
-            }
-            .buttonStyle(ToolCardButtonStyle())
-            
-            NavigationLink(destination: ImageSearchToolView(services: services)) {
-                ToolGridCard(
-                    icon: "photo.on.rectangle.angled",
-                    title: "以图搜图",
-                    subtitle: "选张照片找相似"
-                )
-            }
-            .buttonStyle(ToolCardButtonStyle())
+                NavigationLink(destination: SimilarityClusteringView(services: services)) {
+                    ToolGridCard(
+                        icon: "rectangle.3.group",
+                        title: "相似聚类",
+                        subtitle: "自动发现相似图片簇"
+                    )
+                }
+                .buttonStyle(ToolCardButtonStyle())
         }
     }
     
@@ -155,17 +146,6 @@ struct ToolCardButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
-    }
-}
-
-// MARK: - Image Search Tool View（简化版，作为以图搜图入口）
-
-struct ImageSearchToolView: View {
-    let services: AppServices
-    
-    var body: some View {
-        TextImageSimilarityView(services: services)
-            .navigationTitle("以图搜图")
     }
 }
 

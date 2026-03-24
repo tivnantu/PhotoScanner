@@ -194,6 +194,20 @@ actor IndexEngine {
             }
 
             for asset in sortedAssets where entriesByID[asset.assetLocalIdentifier] == nil {
+                // 检查是否被取消
+                if Task.isCancelled {
+                    Logger.index.info("索引构建被取消，已完成 \(completedCount)/\(totalCount)")
+                    // 保存当前进度到 checkpoint
+                    try? await indexStore.saveCheckpoint(
+                        IndexCheckpoint.building(
+                            candidateAssetIdentifiers: candidateAssetIdentifiers,
+                            completedCount: completedCount,
+                            totalCount: totalCount
+                        )
+                    )
+                    return await loadCurrentState()
+                }
+                
                 // 热节流：过热时暂停，冷却后恢复
                 try await thermalThrottler.waitIfNeeded()
                 
@@ -293,7 +307,8 @@ actor IndexEngine {
             )
         }
         
-        guard let imageData = await photoLibraryAssetProvider.originalImageData(for: photoLibraryAssetIdentifier) else {
+        // 使用索引优化尺寸（224x224）而非原图，提升 10-50 倍速度
+        guard let imageData = await photoLibraryAssetProvider.indexOptimizedImageData(for: photoLibraryAssetIdentifier) else {
             let accessState = await photoLibraryAssetProvider.currentAccessState()
             let reason: String
             if accessState.hasReadAccess {
@@ -308,7 +323,7 @@ actor IndexEngine {
         }
         
         Logger.index.debug(
-            "构建取图: \(Self.shortIdentifier(asset.assetLocalIdentifier)) 从系统相册获取原图，photoIdentifier: \(Self.shortIdentifier(photoLibraryAssetIdentifier))"
+            "构建取图: \(Self.shortIdentifier(asset.assetLocalIdentifier)) 从系统相册获取优化图（224x224），photoIdentifier: \(Self.shortIdentifier(photoLibraryAssetIdentifier))"
         )
         return imageData
     }

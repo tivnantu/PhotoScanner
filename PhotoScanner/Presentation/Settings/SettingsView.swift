@@ -1,6 +1,8 @@
 import SwiftUI
 import Photos
 import OSLog
+import UIKit
+import Darwin
 
 /// 设置页 - 借鉴 V1 设计的卡片式布局
 struct SettingsView: View {
@@ -47,8 +49,9 @@ struct SettingsView: View {
 // MARK: - 照片库状态卡片
 
 private struct PhotoLibrarySection: View {
-    let viewModel: SettingsViewModel
+    @Bindable var viewModel: SettingsViewModel
     @State private var showRebuildConfirmation = false
+    @State private var showLimitPicker = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -62,8 +65,54 @@ private struct PhotoLibrarySection: View {
             // 状态卡片（V1 IndexStatusCard 风格）
             IndexStatusCard(viewModel: viewModel)
             
+            // 扫描数量选择器
+            scanLimitRow
+            
             // 操作按钮
             actionButtons
+        }
+    }
+    
+    @ViewBuilder
+    private var scanLimitRow: some View {
+        Button {
+            showLimitPicker = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "photo.stack")
+                    .font(.system(size: 18))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 28, height: 28)
+                
+                Text("扫描数量")
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                
+                Spacer()
+                
+                Text(viewModel.selectedLimit.displayName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isBuilding)
+        .sheet(isPresented: $showLimitPicker) {
+            ScanLimitPickerSheet(
+                selectedLimit: $viewModel.selectedLimit,
+                isPresented: $showLimitPicker
+            )
+            .presentationDetents([.height(320)])
+            .presentationDragIndicator(.visible)
         }
     }
     
@@ -77,7 +126,7 @@ private struct PhotoLibrarySection: View {
                     icon: "pause.fill",
                     iconColor: .orange
                 ) {
-                    Task { await viewModel.pauseBuilding() }
+                    viewModel.pauseBuilding()
                 }
             } else if viewModel.canResumeBuilding {
                 SettingsButton(
@@ -85,7 +134,7 @@ private struct PhotoLibrarySection: View {
                     icon: "play.fill",
                     iconColor: .green
                 ) {
-                    Task { await viewModel.resumeBuilding() }
+                    viewModel.resumeBuilding()
                 }
             } else if viewModel.indexedCount == 0 {
                 // 未开始
@@ -94,7 +143,7 @@ private struct PhotoLibrarySection: View {
                     icon: "arrow.trianglehead.clockwise",
                     iconColor: .blue
                 ) {
-                    Task { await viewModel.resumeBuilding() }
+                    viewModel.resumeBuilding()
                 }
             } else {
                 // 已就绪但有待处理
@@ -104,7 +153,7 @@ private struct PhotoLibrarySection: View {
                         icon: "arrow.trianglehead.clockwise",
                         iconColor: .blue
                     ) {
-                        Task { await viewModel.resumeBuilding() }
+                        viewModel.resumeBuilding()
                     }
                 }
                 
@@ -125,7 +174,7 @@ private struct PhotoLibrarySection: View {
                     Button("重新分析", role: .destructive) {
                         Task {
                             await viewModel.clearCache()
-                            await viewModel.resumeBuilding()
+                            viewModel.resumeBuilding()
                         }
                     }
                     Button("取消", role: .cancel) {}
@@ -393,6 +442,7 @@ private struct InfoRow: View {
 private struct SystemStatusSection: View {
     let viewModel: SettingsViewModel
     @State private var memoryUsage: String = "--"
+    @State private var timer: Timer?
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -413,8 +463,16 @@ private struct SystemStatusSection: View {
             .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: 14))
         }
-        .task {
-            await updateMemoryUsage()
+        .onAppear {
+            updateMemoryUsage()
+            // 每秒刷新一次内存占用
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+                updateMemoryUsage()
+            }
+        }
+        .onDisappear {
+            timer?.invalidate()
+            timer = nil
         }
     }
     
@@ -430,12 +488,10 @@ private struct SystemStatusSection: View {
         }
     }
     
-    private func updateMemoryUsage() async {
-        // 简单估算：embedding 大小 + 一些开销
-        let embeddingSize = viewModel.indexedCount * 512 * MemoryLayout<Float>.size
-        let totalSize = embeddingSize + 50 * 1024 * 1024  // 50MB 开销
-        let sizeInMB = Double(totalSize) / 1024 / 1024
-        memoryUsage = sizeInMB > 0 ? String(format: "%.1f MB", sizeInMB) : "--"
+    private func updateMemoryUsage() {
+        // 使用 MemoryMonitor 获取真实的 App 内存占用
+        let usageMB = MemoryMonitor.currentMemoryMB()
+        memoryUsage = String(format: "%.1f MB", usageMB)
     }
 }
 
@@ -482,6 +538,34 @@ private struct AboutSection: View {
     }
 }
 
+// MARK: - 张数限制选项
+
+enum PhotoScanLimit: Int, CaseIterable, Identifiable {
+    case limit1k = 1000
+    case limit3k = 3000
+    case limit5k = 5000
+    case limit8k = 8000
+    case limit10k = 10000
+    case limit15k = 15000
+    case limit20k = 20000
+    case unlimited = 0
+    
+    var id: Int { rawValue }
+    
+    var displayName: String {
+        switch self {
+        case .limit1k: return "1,000"
+        case .limit3k: return "3,000"
+        case .limit5k: return "5,000"
+        case .limit8k: return "8,000"
+        case .limit10k: return "10,000"
+        case .limit15k: return "15,000"
+        case .limit20k: return "20,000"
+        case .unlimited: return "无限制"
+        }
+    }
+}
+
 // MARK: - Settings ViewModel
 
 @Observable
@@ -502,6 +586,12 @@ class SettingsViewModel {
     var indexedCount: Int = 0
     var indexSize: String = "0 MB"
     var cacheSize: String = "0 MB"
+    
+    // 张数限制（默认 3000）
+    var selectedLimit: PhotoScanLimit = .limit3k
+    
+    // 构建任务（用于取消）
+    private var buildTask: Task<Void, Never>?
     
     init(services: AppServices) {
         self.indexEngine = services.indexEngine
@@ -592,30 +682,136 @@ class SettingsViewModel {
         return String(format: "%.1f MB", sizeInMB)
     }
     
-    func pauseBuilding() async {
-        // IndexEngine 不支持真正的暂停，取消任务即可
-        // checkpoint 会自动保存进度，可以稍后继续
+    func pauseBuilding() {
+        // 取消构建任务
+        buildTask?.cancel()
+        buildTask = nil
+        
+        // 更新状态
         isBuilding = false
         canResumeBuilding = true
+        
+        Logger.app.info("用户暂停索引构建")
     }
     
-    func resumeBuilding() async {
-        do {
-            isBuilding = true
-            canResumeBuilding = false
+    func resumeBuilding() {
+        // 如果已有任务在运行，先取消
+        buildTask?.cancel()
+        
+        // 创建新的构建任务
+        buildTask = Task { [weak self] in
+            guard let self = self else { return }
             
-            // 调用 IndexEngine 的 resumeBuildIfNeeded
-            _ = try await indexEngine.resumeBuildIfNeeded { [weak self] state in
-                Task { @MainActor in
-                    self?.handleBuildStateUpdate(state)
+            await MainActor.run {
+                self.isBuilding = true
+                self.canResumeBuilding = false
+            }
+            
+            do {
+                // 先检查是否有 checkpoint 可以恢复
+                let state = await self.indexEngine.loadCurrentState()
+                
+                switch state {
+                case .building, .preparing:
+                    // 已有进行中的构建，恢复它
+                    _ = try await self.indexEngine.resumeBuildIfNeeded { [weak self] buildState in
+                        Task { @MainActor in
+                            self?.handleBuildStateUpdate(buildState)
+                        }
+                    }
+                    
+                case .idle, .ready:
+                    // 没有进行中的构建，从相册导入并构建
+                    try await self.startBuildingFromPhotoLibrary()
+                    
+                case .failed:
+                    // 上次失败了，尝试恢复
+                    _ = try await self.indexEngine.resumeBuildIfNeeded { [weak self] buildState in
+                        Task { @MainActor in
+                            self?.handleBuildStateUpdate(buildState)
+                        }
+                    }
+                }
+                
+                // 构建完成（或取消），刷新状态
+                await self.refreshStatus()
+                
+                await MainActor.run {
+                    self.isBuilding = false
+                    self.canResumeBuilding = false
+                }
+            } catch {
+                Logger.app.error("索引构建失败: \(error)")
+                await MainActor.run {
+                    self.isBuilding = false
+                    self.canResumeBuilding = true
+                }
+            }
+        }
+    }
+    
+    /// 从系统相册获取图片并开始构建索引
+    private func startBuildingFromPhotoLibrary() async throws {
+        // 获取相册访问状态
+        let accessState = await photoLibraryAssetProvider.currentAccessState()
+        guard accessState.hasReadAccess else {
+            throw PSError.invalidInput("没有相册访问权限")
+        }
+        
+        // 获取所有图片资源
+        let fetchOptions = PHFetchOptions()
+        fetchOptions.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        let fetchResult = PHAsset.fetchAssets(with: fetchOptions)
+        
+        guard fetchResult.count > 0 else {
+            throw PSError.invalidInput("相册中没有图片")
+        }
+        
+        // 限制最大索引数量（根据用户选择）
+        let limit = selectedLimit.rawValue
+        let maxIndexCount = limit > 0 ? min(fetchResult.count, limit) : fetchResult.count
+        
+        Logger.app.info("开始从相册导入 \(maxIndexCount) 张图片用于索引（限制: \(self.selectedLimit.displayName)）")
+        
+        // 创建 IndexedAssetInput 列表
+        var inputs: [IndexedAssetInput] = []
+        
+        for i in 0..<maxIndexCount {
+            let asset = fetchResult.object(at: i)
+            let localIdentifier = asset.localIdentifier
+            
+            // 获取缩略图数据用于生成指纹
+            if let thumbnailData = await photoLibraryAssetProvider.previewResource(for: localIdentifier)?.previewData {
+                do {
+                    let input = try IndexedAssetInput(
+                        assetLocalIdentifier: localIdentifier,
+                        imageData: thumbnailData,
+                        createdAt: asset.creationDate ?? Date()
+                    )
+                    inputs.append(input)
+                } catch {
+                    Logger.app.warning("创建 IndexedAssetInput 失败: \(localIdentifier)")
                 }
             }
             
-            // 刷新状态
-            await refreshStatus()
-        } catch {
-            isBuilding = false
-            canResumeBuilding = true
+            // 每 100 张报告一次进度
+            if i % 100 == 0 {
+                Logger.app.info("已导入 \(i)/\(maxIndexCount) 张图片")
+            }
+        }
+        
+        guard !inputs.isEmpty else {
+            throw PSError.invalidInput("没有可索引的图片")
+        }
+        
+        Logger.app.info("成功导入 \(inputs.count) 张图片，开始构建索引")
+        
+        // 调用 addAssetsAndRebuild 开始构建
+        _ = try await indexEngine.addAssetsAndRebuild(inputs) { [weak self] buildState in
+            Task { @MainActor in
+                self?.handleBuildStateUpdate(buildState)
+            }
         }
     }
     
@@ -661,6 +857,69 @@ class SettingsViewModel {
             
         default:
             break
+        }
+    }
+}
+
+// MARK: - 张数限制选择器 Sheet
+
+private struct ScanLimitPickerSheet: View {
+    @Binding var selectedLimit: PhotoScanLimit
+    @Binding var isPresented: Bool
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // 顶部操作栏
+            HStack {
+                Button("取消") {
+                    isPresented = false
+                }
+                
+                Spacer()
+                
+                Text("扫描数量")
+                    .font(.headline)
+                
+                Spacer()
+                
+                Button("确定") {
+                    isPresented = false
+                }
+                .fontWeight(.semibold)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            
+            Divider()
+            
+            // Wheel 选择器
+            Picker("扫描数量", selection: $selectedLimit) {
+                ForEach(PhotoScanLimit.allCases) { limit in
+                    Text(limit.displayName)
+                        .tag(limit)
+                }
+            }
+            .pickerStyle(.wheel)
+            .frame(height: 180)
+            
+            // 警告提示（选择无限制时显示）
+            if selectedLimit == .unlimited {
+                VStack(spacing: 0) {
+                    Divider()
+                    
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        
+                        Text("扫描大量照片将占用较大磁盘空间并延长分析时间")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                }
+            }
         }
     }
 }

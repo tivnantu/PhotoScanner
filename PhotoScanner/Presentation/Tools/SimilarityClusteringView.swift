@@ -2,210 +2,342 @@
 // SimilarityClusteringView.swift
 // PhotoScanner
 //
-// 相似聚类功能页面（使用 DBSCAN 算法）
+// 相似聚类功能页面（参考 V1 设计）
 //
 
 import SwiftUI
 import Photos
+import OSLog
 
 struct SimilarityClusteringView: View {
     @Environment(\.services) private var services
     
     @State private var viewModel: SimilarityClusteringViewModel
+    @State private var selectedCluster: PhotoCluster?
     
     init(services: AppServices) {
         _viewModel = State(initialValue: SimilarityClusteringViewModel(services: services))
     }
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // 阈值预设选择
-                presetSection
-                
-                // 开始聚类按钮
-                clusterButton
-                
-                // 结果显示
-                resultSection
+        NavigationStack {
+            Group {
+                if !viewModel.canCluster {
+                    indexNotReadyView
+                } else if viewModel.isLoading {
+                    loadingView
+                } else if let error = viewModel.errorMessage {
+                    errorView(error)
+                } else if viewModel.clusters.isEmpty {
+                    emptyView
+                } else {
+                    clusterListView
+                }
             }
-            .padding()
+            .navigationTitle("相似图片聚类")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task {
+                            await viewModel.performClustering()
+                        }
+                    } label: {
+                        Label(
+                            viewModel.clusters.isEmpty ? "开始分析" : "重新分析",
+                            systemImage: viewModel.clusters.isEmpty ? "wand.and.stars" : "arrow.clockwise"
+                        )
+                    }
+                    .disabled(viewModel.isLoading || !viewModel.canCluster)
+                }
+            }
+            .sheet(item: $selectedCluster) { cluster in
+                ClusterDetailView(cluster: cluster, viewModel: viewModel)
+            }
         }
-        .navigationTitle("相似聚类")
-        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await viewModel.checkIndexStatus()
+        }
     }
     
-    // MARK: - 阈值预设选择
+    // MARK: - Subviews (参考 V1 设计)
     
-    @ViewBuilder
-    private var presetSection: some View {
+    /// 索引未就绪时的提示视图
+    private var indexNotReadyView: some View {
+        ContentUnavailableView {
+            Label(viewModel.indexStateDescription.title, systemImage: "clock")
+        } description: {
+            Text(viewModel.indexStateDescription.message)
+        } actions: {
+            if viewModel.isIndexFailed {
+                Button("重试") {
+                    // 触发索引导航或提示
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+    
+    private var loadingView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+            Text("正在分析相似图片...")
+                .foregroundStyle(.secondary)
+        }
+    }
+    
+    private func errorView(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("聚类失败", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("重试") {
+                Task {
+                    await viewModel.performClustering()
+                }
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+    
+    private var emptyView: some View {
+        ContentUnavailableView {
+            Label("暂无聚类结果", systemImage: "photo.stack")
+        } description: {
+            Text("点击右上角按钮开始分析相似图片")
+        } actions: {
+            Button("开始分析") {
+                Task {
+                    await viewModel.performClustering()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+    
+    private var clusterListView: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                // 聚类预设选择卡片（参考 V1 tuningCard）
+                tuningCard
+                    .padding(.horizontal, 20)
+                
+                // 统计卡片
+                if let stats = viewModel.statistics {
+                    statisticsCard(stats)
+                        .padding(.horizontal, 20)
+                }
+                
+                // 聚类结果网格（3列）
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+                    spacing: 8
+                ) {
+                    ForEach(viewModel.clusters) { cluster in
+                        ClusterGridItem(
+                            cluster: cluster,
+                            thumbnail: viewModel.thumbnail(for: cluster.centerAssetId ?? "")
+                        )
+                        .onTapGesture {
+                            selectedCluster = cluster
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            .padding(.vertical, 20)
+        }
+    }
+    
+    /// 聚类预设选择卡片（参考 V1 设计）
+    private var tuningCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("聚类模式")
+            Label("聚类模式", systemImage: "slider.horizontal.3")
                 .font(.headline)
             
-            // 五档选择器
-            HStack(spacing: 8) {
+            Text("切换档位后，点击右上角重新分析即可生效。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            
+            VStack(spacing: 8) {
                 ForEach(ClusteringPreset.allCases) { preset in
-                    Button(action: {
+                    Button {
                         viewModel.selectedPreset = preset
-                    }) {
-                        VStack(spacing: 6) {
-                            Text(preset.rawValue)
-                                .font(.caption)
-                                .fontWeight(viewModel.selectedPreset == preset ? .semibold : .regular)
-                                .foregroundStyle(viewModel.selectedPreset == preset ? .white : .primary)
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(preset.title)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.primary)
+                                
+                                Text(preset.summary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
                             
-                            Text(String(format: "%.0f%%", preset.threshold * 100))
-                                .font(.caption2)
-                                .foregroundStyle(viewModel.selectedPreset == preset ? .white.opacity(0.8) : .secondary)
+                            Spacer()
+                            
+                            if viewModel.selectedPreset == preset {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(Color.accentColor)
+                            }
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
                             viewModel.selectedPreset == preset
-                                ? Color.blue
-                                : Color(.systemGray6)
+                                ? Color.accentColor.opacity(0.12)
+                                : Color(.tertiarySystemBackground)
                         )
-                        .cornerRadius(8)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
                 }
             }
             
-            // 描述文字
-            Text(viewModel.selectedPreset.description)
+            Text(viewModel.selectedPreset.detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .center)
         }
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
+        .padding(16)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
     
-    // MARK: - 聚类按钮
-    
-    @ViewBuilder
-    private var clusterButton: some View {
-        Button(action: {
-            Task {
-                await viewModel.performClustering()
+    /// 统计卡片
+    private func statisticsCard(_ stats: ClusteringStatistics) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("聚类统计", systemImage: "chart.bar")
+                .font(.headline)
+            
+            HStack(spacing: 16) {
+                StatisticItem(title: "聚类数", value: "\(stats.clusterCount)")
+                StatisticItem(title: "已分组", value: "\(stats.groupedPhotoCount)")
+                StatisticItem(title: "平均每组", value: String(format: "%.1f", stats.averageClusterSize))
             }
-        }) {
-            HStack {
-                if case .loading(let progress) = viewModel.state {
-                    ProgressView()
-                        .tint(.white)
-                    Text(progress)
-                        .font(.subheadline)
-                } else {
-                    Image(systemName: "square.grid.3x3.fill")
-                    Text("开始聚类")
-                        .fontWeight(.semibold)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(Color.blue)
-            .foregroundStyle(.white)
-            .cornerRadius(12)
         }
-        .disabled({
-            if case .loading = viewModel.state { return true }
-            return false
-        }())
+        .padding(16)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
+}
+
+// MARK: - 统计项
+
+private struct StatisticItem: View {
+    let title: String
+    let value: String
     
-    // MARK: - 结果显示
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.title2)
+                .fontWeight(.semibold)
+                .foregroundStyle(.primary)
+            
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - 聚类网格项（参考 V1 ClusterCard）
+
+private struct ClusterGridItem: View {
+    let cluster: PhotoCluster
+    let thumbnail: UIImage?
     
-    @ViewBuilder
-    private var resultSection: some View {
-        switch viewModel.state {
-        case .idle:
-            VStack(spacing: 12) {
-                Image(systemName: "square.grid.3x3")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.secondary)
-                
-                Text("选择聚类模式后点击「开始聚类」")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
-            .frame(maxWidth: .infinity)
-            
-        case .loading:
-            EmptyView() // 按钮上显示进度
-            
-        case .loaded(let clusters):
-            if clusters.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                    
-                    Text("未找到相似图片组")
-                        .font(.headline)
-                    
-                    Text("尝试选择「更宽容」模式")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            // 缩略图
+            if let thumbnail = thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(height: 120)
+                    .clipped()
             } else {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Text("发现 \(clusters.count) 个相似组")
-                            .font(.headline)
-                        
-                        Spacer()
-                        
-                        Button("重置") {
-                            viewModel.reset()
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(.blue)
-                    }
+                ZStack {
+                    Color(.systemGray5)
+                        .frame(height: 120)
                     
-                    ForEach(clusters) { cluster in
-                        ClusterCard(
-                            cluster: cluster,
-                            thumbnail: viewModel.thumbnail(for: cluster.centerAssetId ?? "")
-                        )
-                    }
+                    Image(systemName: "photo")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.secondary)
                 }
             }
             
-        case .error(let message):
-            VStack(spacing: 12) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.red)
-                
-                Text("聚类失败")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                
-                Text(message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                
-                Button("重试") {
-                    viewModel.reset()
+            // 数量标签
+            Text("\(cluster.assetIds.count)")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.black.opacity(0.6))
+                .clipShape(Capsule())
+                .padding(6)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - 聚类详情视图（sheet）
+
+private struct ClusterDetailView: View {
+    let cluster: PhotoCluster
+    let viewModel: SimilarityClusteringViewModel
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3),
+                    spacing: 4
+                ) {
+                    ForEach(cluster.assetIds, id: \.self) { assetId in
+                        if let thumbnail = viewModel.thumbnail(for: assetId) {
+                            Image(uiImage: thumbnail)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(height: 120)
+                                .clipped()
+                        } else {
+                            Color(.systemGray5)
+                                .frame(height: 120)
+                                .overlay {
+                                    Image(systemName: "photo")
+                                        .foregroundStyle(.secondary)
+                                }
+                        }
+                    }
                 }
-                .font(.subheadline)
-                .foregroundStyle(.blue)
+                .padding(4)
             }
-            .padding()
-            .frame(maxWidth: .infinity)
-            .background(Color(.systemGray6))
-            .cornerRadius(12)
+            .navigationTitle("\(cluster.assetIds.count) 张相似图片")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
+}
+
+// MARK: - 聚类统计
+
+struct ClusteringStatistics {
+    let clusterCount: Int
+    let groupedPhotoCount: Int
+    let averageClusterSize: Double
 }
 
 // MARK: - Cluster Card

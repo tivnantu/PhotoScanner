@@ -30,6 +30,22 @@ enum ClusteringPreset: String, CaseIterable, Identifiable {
         }
     }
     
+    var title: String { rawValue }
+    
+    var summary: String {
+        switch self {
+        case .moreLenient: return "更多相似图片被归为一组"
+        case .lenient: return "相对宽松的分组标准"
+        case .balanced: return "推荐设置，平衡精度与召回"
+        case .strict: return "相对严格的分组标准"
+        case .moreStrict: return "仅非常相似的图片才会分组"
+        }
+    }
+    
+    var detail: String {
+        "相似度阈值: \(Int(threshold * 100))%，最少 \(minClusterSize) 张组成一组"
+    }
+    
     var description: String {
         switch self {
         case .moreLenient: return "低阈值，更多分组"
@@ -56,6 +72,7 @@ final class SimilarityClusteringViewModel {
     private let embeddingService: EmbeddingService
     private let vectorStore: any VectorStore
     private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
+    private let indexEngine: IndexEngine
     
     // MARK: - 状态
     
@@ -67,6 +84,82 @@ final class SimilarityClusteringViewModel {
     }
     
     var state: State = .idle
+    
+    // 索引状态
+    enum IndexState {
+        case unknown
+        case idle
+        case building
+        case paused
+        case ready(count: Int)
+        case partial(count: Int)
+        case failed
+        
+        var canCluster: Bool {
+            switch self {
+            case .ready, .partial:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+    
+    var indexState: IndexState = .unknown
+    
+    var indexStateDescription: (title: String, message: String) {
+        switch indexState {
+        case .idle, .unknown:
+            return ("索引未开始", "请先分析照片以启用聚类功能")
+        case .building:
+            return ("索引构建中", "请等待索引完成后再进行聚类分析")
+        case .paused:
+            return ("索引已暂停", "请恢复索引并等待完成后再进行聚类分析")
+        case .partial(let count):
+            return ("索引部分就绪", "当前 \(count) 张照片已就绪，可以进行聚类，但建议等待全部完成")
+        case .ready(let count):
+            return ("索引就绪", "\(count) 张照片已就绪，可以进行聚类分析")
+        case .failed:
+            return ("索引失败", "索引构建失败，请检查错误并重新开始")
+        }
+    }
+    
+    var canCluster: Bool {
+        indexState.canCluster
+    }
+    
+    var isIndexFailed: Bool {
+        if case .failed = indexState {
+            return true
+        }
+        return false
+    }
+    
+    var isLoading: Bool {
+        if case .loading = state { return true }
+        return false
+    }
+    
+    var errorMessage: String? {
+        if case .error(let msg) = state { return msg }
+        return nil
+    }
+    
+    var clusters: [PhotoCluster] {
+        if case .loaded(let c) = state { return c }
+        return []
+    }
+    
+    var statistics: ClusteringStatistics? {
+        guard !clusters.isEmpty else { return nil }
+        let totalPhotos = clusters.reduce(0) { $0 + $1.assetIds.count }
+        let avgSize = Double(totalPhotos) / Double(clusters.count)
+        return ClusteringStatistics(
+            clusterCount: clusters.count,
+            groupedPhotoCount: totalPhotos,
+            averageClusterSize: avgSize
+        )
+    }
     
     // 参数
     var selectedPreset: ClusteringPreset = .balanced
@@ -80,9 +173,26 @@ final class SimilarityClusteringViewModel {
         self.embeddingService = services.embeddingService
         self.vectorStore = services.vectorStore
         self.photoLibraryAssetProvider = services.photoLibraryAssetProvider
+        self.indexEngine = services.indexEngine
     }
     
     // MARK: - 操作
+    
+    /// 检查索引状态
+    func checkIndexStatus() async {
+        let buildState = await indexEngine.loadCurrentState()
+        
+        switch buildState {
+        case .idle:
+            indexState = .idle
+        case .preparing, .building:
+            indexState = .building
+        case .ready(let manifest):
+            indexState = .ready(count: manifest.itemCount)
+        case .failed:
+            indexState = .failed
+        }
+    }
     
     /// 执行聚类
     func performClustering() async {
@@ -287,14 +397,25 @@ final class SimilarityClusteringViewModel {
     
     /// 加载缩略图
     private func loadThumbnails(for clusters: [PhotoCluster]) async {
-        // 只加载聚类中心的缩略图
+        // 加载聚类中心及其成员的缩略图
         for cluster in clusters {
+            // 加载中心点
             if let centerAssetId = cluster.centerAssetId,
                thumbnailCache[centerAssetId] == nil {
                 if let resource = await photoLibraryAssetProvider.previewResource(for: centerAssetId),
                    let data = resource.previewData,
                    let image = UIImage(data: data) {
                     thumbnailCache[centerAssetId] = image
+                }
+            }
+            
+            // 预加载前几个成员（用于详情页）
+            for assetId in cluster.assetIds.prefix(10) {
+                guard thumbnailCache[assetId] == nil else { continue }
+                if let resource = await photoLibraryAssetProvider.previewResource(for: assetId),
+                   let data = resource.previewData,
+                   let image = UIImage(data: data) {
+                    thumbnailCache[assetId] = image
                 }
             }
         }

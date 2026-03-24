@@ -23,6 +23,11 @@ struct SearchHomeView: View {
     // 搜索建议
     private let searchSuggestions: [String] = ["海边日落", "猫咪", "美食", "旅行"]
     
+    // 搜索历史管理器
+    private var searchHistoryManager: SearchHistoryManager {
+        services.searchHistoryManager
+    }
+    
     enum SearchMode {
         case none
         case text
@@ -460,20 +465,30 @@ struct SearchHomeView: View {
     }
     
     private func loadSearchHistory() async {
-        // 模拟加载历史
-        searchHistory = [
-            SearchHistoryItem(query: "猫咪", resultCount: 10, date: Date()),
-            SearchHistoryItem(query: "海边日落", resultCount: 20, date: Date().addingTimeInterval(-86400)),
-            SearchHistoryItem(query: "海边大桥", resultCount: 20, date: Date().addingTimeInterval(-86400))
-        ]
+        let entries = await searchHistoryManager.getHistory()
+        searchHistory = entries.map { entry in
+            SearchHistoryItem(
+                id: entry.id,
+                query: entry.query,
+                resultCount: entry.resultCount,
+                date: entry.date
+            )
+        }
     }
     
     private func clearSearchHistory() async {
+        await searchHistoryManager.clearHistory()
         searchHistory = []
     }
     
     private func deleteHistoryItem(_ item: SearchHistoryItem) async {
+        await searchHistoryManager.removeHistory(item.id)
         searchHistory.removeAll { $0.id == item.id }
+    }
+    
+    private func addSearchHistory(query: String, resultCount: Int) async {
+        await searchHistoryManager.addHistory(query, resultCount: resultCount)
+        await loadSearchHistory()
     }
     
     private func performTextSearch() async {
@@ -491,8 +506,13 @@ struct SearchHomeView: View {
             viewModel.queryText = searchText
             try await viewModel.performSearch()
             
+            let results = viewModel.searchResults
+            
+            // 添加搜索历史
+            await addSearchHistory(query: searchText, resultCount: results.count)
+            
             withAnimation(.easeInOut(duration: 0.3)) {
-                searchResults = viewModel.searchResults
+                searchResults = results
                 isSearching = false
             }
         } catch {
@@ -551,10 +571,17 @@ struct SearchHomeView: View {
 // MARK: - Search History Item
 
 struct SearchHistoryItem: Identifiable {
-    let id = UUID()
+    let id: UUID
     let query: String
     let resultCount: Int
     let date: Date
+    
+    init(id: UUID = UUID(), query: String, resultCount: Int, date: Date) {
+        self.id = id
+        self.query = query
+        self.resultCount = resultCount
+        self.date = date
+    }
     
     var timeAgo: String {
         let formatter = RelativeDateTimeFormatter()

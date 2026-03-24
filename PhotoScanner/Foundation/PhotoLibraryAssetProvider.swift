@@ -1,6 +1,8 @@
 import Foundation
 import Photos
 import UIKit
+import OSLog
+import MobileCoreServices
 
 // TODO: 架构合规 - Foundation 层禁止导入 UIKit/Photos，此文件应移至 Infrastructure/ 层
 // Issue: Foundation 层应为纯 Swift，零外部依赖
@@ -139,6 +141,99 @@ actor PhotoLibraryAssetProvider {
             detail: "\(shortIdentifier(localIdentifier)) \(data == nil ? "未读到原图" : "已读取原图")"
         )
         return data
+    }
+
+    /// 获取用于索引的优化尺寸图片（224x224，匹配模型输入）
+    /// 使用 ThumbnailCache + ImageIO 降采样，比原图快 10-50 倍，内存占用更低
+    func indexOptimizedImageData(for localIdentifier: String, targetSize: Int = 224) async -> Data? {
+        let startedAt = ContinuousClock.now
+        guard !localIdentifier.isEmpty else {
+            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "图片标识为空")
+            return nil
+        }
+
+        guard currentAccessState().hasReadAccess else {
+            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 权限不可用")
+            return nil
+        }
+
+        // 优先从 ThumbnailCache 获取（搜索结果可能已经缓存）
+        if let cache = thumbnailCache, let cachedImage = await cache.image(for: localIdentifier) {
+            // 缓存命中：UIImage → JPEG Data（质量 0.9）
+            if let jpegData = cachedImage.jpegData(compressionQuality: 0.9) {
+                await recordPerformance(
+                    .photoLibraryPreview,
+                    startedAt: startedAt,
+                    detail: "\(shortIdentifier(localIdentifier)) 缓存命中，大小: \(jpegData.count) bytes"
+                )
+                return jpegData
+            }
+        }
+
+        guard let asset = fetchAsset(localIdentifier: localIdentifier) else {
+            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 资源不存在")
+            return nil
+        }
+
+        // 使用 requestImageDataAndOrientation 获取原始数据，然后用 ImageIO 降采样
+        // 避免 UIImage → JPEG → Data 的重复编解码
+        let data = await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .fastFormat
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = false
+            
+            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
+                continuation.resume(returning: data)
+            }
+        }
+
+        guard let imageData = data else {
+            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 未获取到数据")
+            return nil
+        }
+
+        // 使用 ImageIO 降采样到目标尺寸（解码阶段直接缩放，内存最优）
+        let downsampleOptions: [CFString: Any] = [
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: targetSize,
+        ]
+
+        guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, downsampleOptions as CFDictionary) else {
+            // 降采样失败，返回原始数据（让 preprocessor 处理）
+            await recordPerformance(
+                .photoLibraryPreview,
+                startedAt: startedAt,
+                detail: "\(shortIdentifier(localIdentifier)) 降采样失败，使用原始数据 \(imageData.count) bytes"
+            )
+            return imageData
+        }
+
+        // 将降采样后的 CGImage 转为 JPEG Data
+        let mutableData = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(mutableData, kUTTypeJPEG, 1, nil) else {
+            return imageData
+        }
+
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        CGImageDestinationFinalize(destination)
+
+        let resultData = mutableData as Data
+
+        // 存入 ThumbnailCache（供后续搜索复用）
+        if let cache = thumbnailCache, let uiImage = UIImage(data: resultData) {
+            await cache.store(uiImage, for: localIdentifier)
+        }
+
+        await recordPerformance(
+            .photoLibraryPreview,
+            startedAt: startedAt,
+            detail: "\(shortIdentifier(localIdentifier)) 降采样完成: \(imageData.count) -> \(resultData.count) bytes"
+        )
+        return resultData
     }
 
     func containsAsset(with localIdentifier: String) -> Bool {
