@@ -215,21 +215,19 @@ final class SimilarityClusteringViewModel {
                 return
             }
             
-            // 2. 根据数据量选择聚类策略
+            // 2. 直接使用全局 HNSW 索引（vectorStore 已是 HNSWVectorStore）
             let threshold = selectedPreset.threshold
             let minPoints = selectedPreset.minPoints
             
             let clusters: [PhotoCluster]
             
-            if entries.count > 500 {
-                // 大数据量：使用 HNSW 加速（构建临时索引）
-                state = .loading(progress: "构建加速索引...")
-                clusters = try await dbscanClusterWithHNSW(entries, threshold: threshold, minPoints: minPoints)
-            } else {
-                // 小数据量：使用暴力搜索（避免索引构建开销）
-                state = .loading(progress: "执行聚类...")
-                clusters = try await dbscanClusterBruteForce(entries, threshold: threshold, minPoints: minPoints)
-            }
+            // 统一使用 HNSW 加速（全局索引已构建好）
+            clusters = try await dbscanClusterWithGlobalHNSW(
+                entries: entries,
+                snapshot: snapshot,
+                threshold: threshold,
+                minPoints: minPoints
+            )
             
             // 3. 加载聚类中心的缩略图
             state = .loading(progress: "加载缩略图...")
@@ -238,7 +236,11 @@ final class SimilarityClusteringViewModel {
             // 4. 更新状态
             state = .loaded(clusters: clusters)
         } catch {
-            state = .error(error.localizedDescription)
+            if error is CancellationError {
+                state = .idle
+            } else {
+                state = .error(error.localizedDescription)
+            }
         }
     }
     
@@ -273,10 +275,11 @@ final class SimilarityClusteringViewModel {
     
     // MARK: - DBSCAN 算法（HNSW 加速版本）
     
-    /// 使用 HNSW 索引加速的 DBSCAN 聚类
-    /// 时间复杂度：O(n log n)，适用于大数据量场景
-    private func dbscanClusterWithHNSW(
-        _ entries: [IndexEntry],
+    /// 使用全局 HNSW 索引的 DBSCAN 聚类
+    /// 直接复用已构建的 vectorStore 索引，避免重复构建
+    private func dbscanClusterWithGlobalHNSW(
+        entries: [IndexEntry],
+        snapshot: IndexSnapshot,
         threshold: Float,
         minPoints: Int
     ) async throws -> [PhotoCluster] {
@@ -284,43 +287,38 @@ final class SimilarityClusteringViewModel {
         var labels = [Int?](repeating: nil, count: n)
         var clusterId = 0
         
-        // 构建临时 HNSW 索引
-        let hnswStore = HNSWVectorStore(embeddingDimension: 512)
-        let snapshot = try IndexSnapshot(
-            manifest: IndexManifest(
-                modelID: "temp",
-                modelVersion: "1",
-                modelDisplayName: "temp",
-                embeddingDimension: 512,
-                imageSize: 224,
-                contextLength: 52,
-                modelFingerprint: "temp",
-                resourceFingerprint: "temp",
-                createdAt: Date(),
-                updatedAt: Date(),
-                itemCount: entries.count
-            ),
-            entries: entries
-        )
-        try await hnswStore.replaceSnapshot(snapshot)
-        
         // 构建索引映射
         var idToIndex: [String: Int] = [:]
+        idToIndex.reserveCapacity(n)
         for (i, entry) in entries.enumerated() {
             idToIndex[entry.assetLocalIdentifier] = i
         }
         
-        state = .loading(progress: "执行 DBSCAN 聚类（HNSW 加速）...")
+        // 进度跟踪
+        var lastProgressUpdate = ContinuousClock.now
+        let progressInterval = Duration.seconds(0.5)
         
         // DBSCAN 主循环
         for i in 0..<n {
+            // 检查取消
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            
             // 已分类，跳过
             if labels[i] != nil { continue }
             
-            // 使用 HNSW 查找邻居（O(log n) 复杂度）
-            let neighbors = try await findNeighborsWithHNSW(
+            // 更新进度
+            let now = ContinuousClock.now
+            if now - lastProgressUpdate > progressInterval {
+                let progress = Double(i) / Double(n) * 100
+                state = .loading(progress: String(format: "聚类分析中... %.0f%%", progress))
+                lastProgressUpdate = now
+            }
+            
+            // 使用全局 vectorStore 查找邻居
+            let neighbors = try await findNeighborsGlobal(
                 entry: entries[i],
-                hnswStore: hnswStore,
                 idToIndex: idToIndex,
                 threshold: threshold
             )
@@ -339,6 +337,11 @@ final class SimilarityClusteringViewModel {
             seedSet.remove(i)
             
             while !seedSet.isEmpty {
+                // 检查取消
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
+                
                 let j = seedSet.removeFirst()
                 
                 if labels[j] == -1 {
@@ -349,10 +352,9 @@ final class SimilarityClusteringViewModel {
                 
                 labels[j] = clusterId
                 
-                // 使用 HNSW 查找邻居的邻居
-                let jNeighbors = try await findNeighborsWithHNSW(
+                // 查找邻居的邻居
+                let jNeighbors = try await findNeighborsGlobal(
                     entry: entries[j],
-                    hnswStore: hnswStore,
                     idToIndex: idToIndex,
                     threshold: threshold
                 )
@@ -371,167 +373,11 @@ final class SimilarityClusteringViewModel {
             clusterMap[clusterLabel, default: []].append(entries[i])
         }
         
-        // 转换为 PhotoCluster
+        // 转换为 PhotoCluster（简化中心选择）
         var clusters: [PhotoCluster] = []
         
         for (clusterLabel, clusterEntries) in clusterMap {
-            // 计算聚类中心（与其他点平均相似度最高的点）
-            let centerEntry = await findClusterCenterWithHNSW(
-                entries: clusterEntries,
-                hnswStore: hnswStore
-            )
-            
-            clusters.append(PhotoCluster(
-                id: "\(clusterLabel)",
-                assetIds: clusterEntries.map { $0.assetLocalIdentifier },
-                centerAssetId: centerEntry.assetLocalIdentifier,
-                similarityScore: threshold
-            ))
-        }
-        
-        // 按簇大小排序
-        return clusters.sorted { $0.assetIds.count > $1.assetIds.count }
-    }
-    
-    /// 使用 HNSW 查找邻居
-    private func findNeighborsWithHNSW(
-        entry: IndexEntry,
-        hnswStore: HNSWVectorStore,
-        idToIndex: [String: Int],
-        threshold: Float
-    ) async throws -> [Int] {
-        // 使用 HNSW 搜索 top-K 个最近邻
-        let k = max(50, idToIndex.count / 10)
-        
-        let results = try await hnswStore.search(queryEmbedding: entry.embedding, topK: k)
-        
-        // 过滤出相似度大于阈值的邻居，并转换为索引
-        var neighbors: [Int] = []
-        for result in results {
-            if result.score >= threshold {
-                if let index = idToIndex[result.assetLocalIdentifier],
-                   result.assetLocalIdentifier != entry.assetLocalIdentifier {
-                    neighbors.append(index)
-                }
-            }
-        }
-        
-        return neighbors
-    }
-    
-    /// 使用 HNSW 查找聚类中心
-    private func findClusterCenterWithHNSW(
-        entries: [IndexEntry],
-        hnswStore: HNSWVectorStore
-    ) async -> IndexEntry {
-        guard entries.count > 1 else { return entries[0] }
-        
-        var bestEntry = entries[0]
-        var bestAvgSimilarity: Float = 0
-        
-        for entry in entries {
-            // 使用 HNSW 搜索相似图片
-            if let results = try? await hnswStore.search(queryEmbedding: entry.embedding, topK: entries.count) {
-                // 计算与簇内其他图片的平均相似度
-                let entryIds = Set(entries.map { $0.assetLocalIdentifier })
-                let clusterResults = results.filter { entryIds.contains($0.assetLocalIdentifier) }
-                
-                if !clusterResults.isEmpty {
-                    let avgSimilarity = clusterResults.reduce(0) { $0 + $1.score } / Float(clusterResults.count)
-                    
-                    if avgSimilarity > bestAvgSimilarity {
-                        bestAvgSimilarity = avgSimilarity
-                        bestEntry = entry
-                    }
-                }
-            }
-        }
-        
-        return bestEntry
-    }
-    
-    // MARK: - DBSCAN 算法（暴力搜索版本）
-    
-    /// 使用暴力搜索的 DBSCAN 聚类
-    /// 时间复杂度：O(n²)，适用于小数据量场景（< 500）
-    private func dbscanClusterBruteForce(
-        _ entries: [IndexEntry],
-        threshold: Float,
-        minPoints: Int
-    ) async throws -> [PhotoCluster] {
-        let n = entries.count
-        var labels = [Int?](repeating: nil, count: n)
-        var clusterId = 0
-        
-        // 构建索引映射
-        var idToIndex: [String: Int] = [:]
-        for (i, entry) in entries.enumerated() {
-            idToIndex[entry.assetLocalIdentifier] = i
-        }
-        
-        // DBSCAN 主循环
-        for i in 0..<n {
-            // 已分类，跳过
-            if labels[i] != nil { continue }
-            
-            // 使用 vectorStore 查找邻居
-            let neighbors = try await findNeighborsBruteForce(
-                entry: entries[i],
-                vectorStore: vectorStore,
-                idToIndex: idToIndex,
-                threshold: threshold
-            )
-            
-            // 核心点判定
-            if neighbors.count < minPoints {
-                labels[i] = -1 // 噪声点
-                continue
-            }
-            
-            // 扩展簇
-            clusterId += 1
-            labels[i] = clusterId
-            
-            var seedSet = Set(neighbors)
-            seedSet.remove(i)
-            
-            while !seedSet.isEmpty {
-                let j = seedSet.removeFirst()
-                
-                if labels[j] == -1 {
-                    labels[j] = clusterId
-                }
-                
-                if labels[j] != nil { continue }
-                
-                labels[j] = clusterId
-                
-                let jNeighbors = try await findNeighborsBruteForce(
-                    entry: entries[j],
-                    vectorStore: vectorStore,
-                    idToIndex: idToIndex,
-                    threshold: threshold
-                )
-                
-                if jNeighbors.count >= minPoints {
-                    seedSet.formUnion(jNeighbors)
-                }
-            }
-        }
-        
-        // 构建聚类结果
-        var clusterMap: [Int: [IndexEntry]] = [:]
-        
-        for (i, label) in labels.enumerated() {
-            guard let clusterLabel = label, clusterLabel > 0 else { continue }
-            clusterMap[clusterLabel, default: []].append(entries[i])
-        }
-        
-        // 转换为 PhotoCluster
-        var clusters: [PhotoCluster] = []
-        
-        for (clusterLabel, clusterEntries) in clusterMap {
-            // 简单选择第一个作为中心（小数据量场景）
+            // 简化：选择第一个作为中心（避免额外的搜索开销）
             let centerEntry = clusterEntries[0]
             
             clusters.append(PhotoCluster(
@@ -542,21 +388,25 @@ final class SimilarityClusteringViewModel {
             ))
         }
         
+        // 按簇大小排序
         return clusters.sorted { $0.assetIds.count > $1.assetIds.count }
     }
     
-    /// 使用 vectorStore 暴力搜索查找邻居
-    private func findNeighborsBruteForce(
+    /// 使用全局 vectorStore 查找邻居
+    private func findNeighborsGlobal(
         entry: IndexEntry,
-        vectorStore: any VectorStore,
         idToIndex: [String: Int],
         threshold: Float
     ) async throws -> [Int] {
-        // 搜索所有相似图片
-        let results = try await vectorStore.search(queryEmbedding: entry.embedding, topK: idToIndex.count)
+        // 使用合理的 k 值（最多 100 个候选）
+        let k = min(100, idToIndex.count)
+        
+        let results = try await vectorStore.search(queryEmbedding: entry.embedding, topK: k)
         
         // 过滤出相似度大于阈值的邻居
         var neighbors: [Int] = []
+        neighbors.reserveCapacity(min(k, 20))
+        
         for result in results {
             if result.score >= threshold {
                 if let index = idToIndex[result.assetLocalIdentifier],
@@ -567,162 +417,6 @@ final class SimilarityClusteringViewModel {
         }
         
         return neighbors
-    }
-    
-    // MARK: - 旧的 DBSCAN 实现（保留作为参考，已弃用）
-    
-    private func dbscanCluster(
-        _ entries: [IndexEntry],
-        threshold: Float,
-        minPoints: Int
-    ) async throws -> [PhotoCluster] {
-        let n = entries.count
-        var labels = [Int?](repeating: nil, count: n)
-        var clusterId = 0
-        
-        // 预计算距离矩阵（上三角）
-        state = .loading(progress: "计算相似度矩阵...")
-        let distanceMatrix = try await computeDistanceMatrix(entries)
-        
-        state = .loading(progress: "执行 DBSCAN 聚类...")
-        
-        for i in 0..<n {
-            // 已分类，跳过
-            if labels[i] != nil { continue }
-            
-            // 查找邻域
-            let neighbors = findNeighbors(i: i, distanceMatrix: distanceMatrix, threshold: threshold, n: n)
-            
-            // 核心点判定
-            if neighbors.count < minPoints {
-                labels[i] = -1 // 噪声点
-                continue
-            }
-            
-            // 扩展簇
-            clusterId += 1
-            labels[i] = clusterId
-            
-            var seedSet = Set(neighbors)
-            seedSet.remove(i)
-            
-            while !seedSet.isEmpty {
-                let j = seedSet.removeFirst()
-                
-                if labels[j] == -1 {
-                    labels[j] = clusterId // 噪声点转为边界点
-                }
-                
-                if labels[j] != nil { continue }
-                
-                labels[j] = clusterId
-                
-                let jNeighbors = findNeighbors(i: j, distanceMatrix: distanceMatrix, threshold: threshold, n: n)
-                
-                if jNeighbors.count >= minPoints {
-                    seedSet.formUnion(jNeighbors)
-                }
-            }
-        }
-        
-        // 构建聚类结果
-        var clusterMap: [Int: [IndexEntry]] = [:]
-        
-        for (i, label) in labels.enumerated() {
-            guard let clusterLabel = label, clusterLabel > 0 else { continue }
-            clusterMap[clusterLabel, default: []].append(entries[i])
-        }
-        
-        // 转换为 PhotoCluster
-        var clusters: [PhotoCluster] = []
-        
-        for (clusterLabel, clusterEntries) in clusterMap {
-            // 找到聚类中心（与其他点平均距离最小的点）
-            let centerEntry = findClusterCenter(entries: clusterEntries, distanceMatrix: distanceMatrix, allEntries: entries)
-            
-            clusters.append(PhotoCluster(
-                id: "\(clusterLabel)",
-                assetIds: clusterEntries.map { $0.assetLocalIdentifier },
-                centerAssetId: centerEntry.assetLocalIdentifier,
-                similarityScore: threshold
-            ))
-        }
-        
-        // 按簇大小排序
-        return clusters.sorted { $0.assetIds.count > $1.assetIds.count }
-    }
-    
-    /// 计算距离矩阵（相似度）
-    private func computeDistanceMatrix(_ entries: [IndexEntry]) async throws -> [[Float]] {
-        let n = entries.count
-        var matrix = [[Float]](repeating: [Float](repeating: 0, count: n), count: n)
-        
-        // 只计算上三角
-        for i in 0..<n {
-            matrix[i][i] = 1.0 // 自己与自己的相似度为 1
-            
-            for j in (i+1)..<n {
-                let similarity = try cosineSimilarity(entries[i].embedding, entries[j].embedding)
-                matrix[i][j] = similarity
-                matrix[j][i] = similarity // 对称
-            }
-        }
-        
-        return matrix
-    }
-    
-    /// 查找邻域
-    private func findNeighbors(i: Int, distanceMatrix: [[Float]], threshold: Float, n: Int) -> [Int] {
-        var neighbors: [Int] = []
-        
-        for j in 0..<n {
-            if i != j && distanceMatrix[i][j] >= threshold {
-                neighbors.append(j)
-            }
-        }
-        
-        return neighbors
-    }
-    
-    /// 找到聚类中心
-    private func findClusterCenter(
-        entries: [IndexEntry],
-        distanceMatrix: [[Float]],
-        allEntries: [IndexEntry]
-    ) -> IndexEntry {
-        guard entries.count > 1 else { return entries[0] }
-        
-        // 构建索引映射
-        var indexMap: [String: Int] = [:]
-        for (i, entry) in allEntries.enumerated() {
-            indexMap[entry.assetLocalIdentifier] = i
-        }
-        
-        var bestEntry = entries[0]
-        var bestAvgDistance = Float.infinity
-        
-        for entry in entries {
-            guard let i = indexMap[entry.assetLocalIdentifier] else { continue }
-            
-            var totalDistance: Float = 0
-            var count = 0
-            
-            for other in entries {
-                guard let j = indexMap[other.assetLocalIdentifier], i != j else { continue }
-                totalDistance += distanceMatrix[i][j]
-                count += 1
-            }
-            
-            if count > 0 {
-                let avgDistance = totalDistance / Float(count)
-                if avgDistance > bestAvgDistance { // 相似度越高越好
-                    bestAvgDistance = avgDistance
-                    bestEntry = entry
-                }
-            }
-        }
-        
-        return bestEntry
     }
     
     /// 加载缩略图
@@ -749,22 +443,6 @@ final class SimilarityClusteringViewModel {
                 }
             }
         }
-    }
-    
-    private func cosineSimilarity(_ a: [Float], _ b: [Float]) throws -> Float {
-        guard a.count == b.count else {
-            throw PSError.invalidModelOutput("向量维度不匹配")
-        }
-        
-        let dot = zip(a, b).reduce(Float.zero) { $0 + $1.0 * $1.1 }
-        let normA = sqrt(a.reduce(Float.zero) { $0 + $1 * $1 })
-        let normB = sqrt(b.reduce(Float.zero) { $0 + $1 * $1 })
-        
-        guard normA > 0, normB > 0 else {
-            return 0
-        }
-        
-        return dot / (normA * normB)
     }
 }
 
