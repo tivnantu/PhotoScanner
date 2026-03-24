@@ -208,7 +208,9 @@ actor PhotoLibraryAssetProvider {
             return nil
         }
 
-        guard currentAccessState().hasReadAccess else {
+        let accessState = currentAccessState()
+        guard accessState.hasReadAccess else {
+            Logger.vision.warning("indexOptimizedImageData: 权限不可用")
             await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 权限不可用")
             return nil
         }
@@ -227,124 +229,77 @@ actor PhotoLibraryAssetProvider {
         }
 
         guard let asset = fetchAsset(localIdentifier: localIdentifier) else {
-            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 资源不存在")
+            Logger.vision.warning("indexOptimizedImageData: 资源不存在 \(self.shortIdentifier(localIdentifier))")
+            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(self.shortIdentifier(localIdentifier)) 资源不存在")
             return nil
         }
 
-        // 使用 requestImageDataAndOrientation 获取原始数据，然后用 ImageIO 降采样
-        // 避免 UIImage → JPEG → Data 的重复编解码
-        let data = await withCheckedContinuation { continuation in
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .fastFormat
-            options.resizeMode = .fast
-            options.isNetworkAccessAllowed = false
-            
-            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
-                continuation.resume(returning: data)
-            }
-        }
+        // 使用 requestImage（支持 iCloud）替代 requestImageDataAndOrientation
+        // 参考 V1 实现和 previewResource 方法
+        let image = await requestImageForIndex(asset: asset, targetSize: targetSize)
 
-        guard let imageData = data else {
-            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(shortIdentifier(localIdentifier)) 未获取到数据")
+        guard let image = image else {
+            Logger.vision.warning("indexOptimizedImageData: 图片请求失败 \(self.shortIdentifier(localIdentifier))")
+            await recordPerformance(.photoLibraryPreview, startedAt: startedAt, detail: "\(self.shortIdentifier(localIdentifier)) 图片请求失败")
             return nil
         }
 
-        // 使用 ImageIO 降采样到目标尺寸（解码阶段直接缩放，内存最优）
-        let downsampleOptions: [CFString: Any] = [
-            kCGImageSourceShouldCache: false,
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: targetSize,
-        ]
-
-        guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
-              let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, downsampleOptions as CFDictionary) else {
-            // 降采样失败，返回原始数据（让 preprocessor 处理）
-            await recordPerformance(
-                .photoLibraryPreview,
-                startedAt: startedAt,
-                detail: "\(shortIdentifier(localIdentifier)) 降采样失败，使用原始数据 \(imageData.count) bytes"
-            )
-            return imageData
-        }
-
-        // 将降采样后的 CGImage 转为 JPEG Data（去除 Alpha 通道）
-        let mutableData = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(mutableData, kUTTypeJPEG, 1, nil) else {
-            return imageData
-        }
-        
-        // JPEG 属性：压缩质量 0.9，不保留元数据以减少大小
-        let imageProperties: [CFString: Any] = [
-            kCGImageDestinationLossyCompressionQuality: 0.9,
-            kCGImagePropertyOrientation: 1 // 正常方向
-        ]
-        
-        // 如果 CGImage 有 Alpha 通道，需要先去除
-        let finalImage: CGImage
-        if cgImage.alphaInfo != .none && cgImage.alphaInfo != .noneSkipLast && cgImage.alphaInfo != .noneSkipFirst {
-            // 创建不透明上下文绘制图像（去除 Alpha）
-            let colorSpace = cgImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
-            // 使用默认位图信息，不指定 byteOrder，让系统决定
-            let bitmapInfo = CGImageAlphaInfo.noneSkipLast.rawValue
-            
-            if let context = CGContext(
-                data: nil,
-                width: cgImage.width,
-                height: cgImage.height,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: bitmapInfo
-            ) {
-                context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
-                if let opaqueImage = context.makeImage() {
-                    finalImage = opaqueImage
-                } else {
-                    finalImage = cgImage
-                }
-            } else {
-                // 无法创建上下文，直接使用原图
-                finalImage = cgImage
-            }
-        } else {
-            finalImage = cgImage
-        }
-
-        CGImageDestinationAddImage(destination, finalImage, imageProperties as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else {
-            // JPEG 编码失败，返回原始数据
-            await recordPerformance(
-                .photoLibraryPreview,
-                startedAt: startedAt,
-                detail: "\(shortIdentifier(localIdentifier)) JPEG 编码失败，使用原始数据"
-            )
-            return imageData
-        }
-
-        let resultData = mutableData as Data
-
-        // 验证结果数据有效性
-        guard !resultData.isEmpty else {
-            await recordPerformance(
-                .photoLibraryPreview,
-                startedAt: startedAt,
-                detail: "\(shortIdentifier(localIdentifier)) JPEG 编码结果为空，使用原始数据"
-            )
-            return imageData
-        }
-
-        // 存入 ThumbnailCache（供后续搜索复用）
-        if let cache = thumbnailCache, let uiImage = UIImage(data: resultData) {
-            await cache.store(uiImage, for: localIdentifier)
-        }
-
+        let data = image.jpegData(compressionQuality: 0.9)
         await recordPerformance(
             .photoLibraryPreview,
             startedAt: startedAt,
-            detail: "\(shortIdentifier(localIdentifier)) 降采样完成: \(imageData.count) -> \(resultData.count) bytes"
+            detail: "\(self.shortIdentifier(localIdentifier)) 已获取优化图 \(targetSize)x\(targetSize)"
         )
-        return resultData
+        return data
+    }
+
+    /// 请求索引优化图片（支持 iCloud）
+    private func requestImageForIndex(asset: PHAsset, targetSize: Int) async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.isSynchronous = false
+            options.deliveryMode = .highQualityFormat  // 索引构建需要高质量
+            options.isNetworkAccessAllowed = true      // 支持 iCloud 下载
+            options.resizeMode = .exact
+
+            let hasResumed = OSAllocatedUnfairLock(initialState: false)
+            let identifier = asset.localIdentifier
+
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: CGSize(width: targetSize, height: targetSize),
+                contentMode: .aspectFill,
+                options: options
+            ) { image, info in
+                // 跳过 degraded 图，等待高质量图
+                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                let isCancelled = (info?[PHImageCancelledKey] as? Bool) ?? false
+                let error = info?[PHImageErrorKey] as? Error
+
+                // degraded 且无错误时继续等待
+                if isDegraded && error == nil && !isCancelled { return }
+
+                // 防止 double-resume
+                guard hasResumed.withLock({ val in
+                    guard !val else { return false }
+                    val = true
+                    return true
+                }) else { return }
+
+                if isCancelled {
+                    Logger.vision.warning("索引图片请求取消: \(String(identifier.prefix(24)))")
+                    continuation.resume(returning: nil)
+                } else if let error = error {
+                    Logger.vision.warning("索引图片请求错误: \(error.localizedDescription)")
+                    continuation.resume(returning: nil)
+                } else if let image = image {
+                    continuation.resume(returning: image)
+                } else {
+                    Logger.vision.warning("索引图片请求无结果: \(String(identifier.prefix(24)))")
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
     func containsAsset(with localIdentifier: String) -> Bool {
