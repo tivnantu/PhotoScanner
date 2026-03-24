@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PhotosUI
+import OSLog
 
 struct ImageImageSimilarityView: View {
     @Environment(\.services) private var services
@@ -35,17 +36,47 @@ struct ImageImageSimilarityView: View {
         }
         .navigationTitle("图图相似度")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("加载失败", isPresented: Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.clearError() } }
+        )) {
+            Button("确定", role: .cancel) {
+                viewModel.clearError()
+            }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
+        }
         .sheet(isPresented: $showPHPicker1) {
             PHPickerWrapper(isPresented: $showPHPicker1, selectionLimit: 1) { items in
-                if let item = items.first, let uiImage = UIImage(data: item.imageData) {
-                    viewModel.selectedImage1 = uiImage
+                await MainActor.run {
+                    if let item = items.first {
+                        if let uiImage = UIImage(data: item.imageData) {
+                            viewModel.selectedImage1 = uiImage
+                            Logger.ui.info("图图相似度: 成功设置图片1，大小 \(item.imageData.count) bytes")
+                        } else {
+                            Logger.ui.warning("图图相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
+                            viewModel.errorMessage = "图片加载失败，请重试"
+                        }
+                    } else {
+                        Logger.ui.warning("图图相似度: items 为空（图片1）")
+                    }
                 }
             }
         }
         .sheet(isPresented: $showPHPicker2) {
             PHPickerWrapper(isPresented: $showPHPicker2, selectionLimit: 1) { items in
-                if let item = items.first, let uiImage = UIImage(data: item.imageData) {
-                    viewModel.selectedImage2 = uiImage
+                await MainActor.run {
+                    if let item = items.first {
+                        if let uiImage = UIImage(data: item.imageData) {
+                            viewModel.selectedImage2 = uiImage
+                            Logger.ui.info("图图相似度: 成功设置图片2，大小 \(item.imageData.count) bytes")
+                        } else {
+                            Logger.ui.warning("图图相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
+                            viewModel.errorMessage = "图片加载失败，请重试"
+                        }
+                    } else {
+                        Logger.ui.warning("图图相似度: items 为空（图片2）")
+                    }
                 }
             }
         }

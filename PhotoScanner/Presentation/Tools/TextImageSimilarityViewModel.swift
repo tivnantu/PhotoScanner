@@ -34,6 +34,9 @@ final class TextImageSimilarityViewModel {
     var selectedImage: UIImage?
     var inputText: String = ""
     
+    // 错误信息（用于图片加载失败的提示）
+    var errorMessage: String?
+    
     // MARK: - 初始化
     
     init(services: AppServices) {
@@ -96,5 +99,11 @@ final class TextImageSimilarityViewModel {
         state = .idle
         selectedImage = nil
         inputText = ""
+        errorMessage = nil
+    }
+    
+    /// 清除错误信息
+    func clearError() {
+        errorMessage = nil
     }
 }

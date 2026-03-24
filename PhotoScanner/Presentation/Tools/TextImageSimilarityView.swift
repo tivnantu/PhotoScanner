@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PhotosUI
+import OSLog
 
 struct TextImageSimilarityView: View {
     @Environment(\.services) private var services
@@ -37,10 +38,31 @@ struct TextImageSimilarityView: View {
         }
         .navigationTitle("图文相似度")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("加载失败", isPresented: Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.clearError() } }
+        )) {
+            Button("确定", role: .cancel) {
+                viewModel.clearError()
+            }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
+        }
         .sheet(isPresented: $showPHPicker) {
             PHPickerWrapper(isPresented: $showPHPicker, selectionLimit: 1) { items in
-                if let item = items.first, let uiImage = UIImage(data: item.imageData) {
-                    viewModel.selectedImage = uiImage
+                await MainActor.run {
+                    if let item = items.first {
+                        if let uiImage = UIImage(data: item.imageData) {
+                            viewModel.selectedImage = uiImage
+                            Logger.ui.info("图文相似度: 成功设置选中图片，大小 \(item.imageData.count) bytes")
+                        } else {
+                            Logger.ui.warning("图文相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
+                            viewModel.errorMessage = "图片加载失败，请重试"
+                        }
+                    } else {
+                        Logger.ui.warning("图文相似度: items 为空")
+                        viewModel.errorMessage = "未选择图片"
+                    }
                 }
             }
         }
