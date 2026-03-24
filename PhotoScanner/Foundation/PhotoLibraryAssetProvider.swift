@@ -212,13 +212,49 @@ actor PhotoLibraryAssetProvider {
             return imageData
         }
 
-        // 将降采样后的 CGImage 转为 JPEG Data
+        // 将降采样后的 CGImage 转为 JPEG Data（去除 Alpha 通道）
         let mutableData = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(mutableData, kUTTypeJPEG, 1, nil) else {
             return imageData
         }
+        
+        // JPEG 属性：压缩质量 0.9，不保留元数据以减少大小
+        let imageProperties: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: 0.9,
+            kCGImagePropertyOrientation: 1 // 正常方向
+        ]
+        
+        // 如果 CGImage 有 Alpha 通道，需要先去除
+        let finalImage: CGImage
+        if cgImage.alphaInfo != .none && cgImage.alphaInfo != .noneSkipLast && cgImage.alphaInfo != .noneSkipFirst {
+            // 创建不透明上下文绘制图像（去除 Alpha）
+            let colorSpace = cgImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+            let bitmapInfo = CGBitmapInfo.byteOrder32Host.rawValue | CGImageAlphaInfo.noneSkipLast.rawValue
+            
+            guard let context = CGContext(
+                data: nil,
+                width: cgImage.width,
+                height: cgImage.height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                // 无法创建上下文，直接使用原图
+                finalImage = cgImage
+            }
+            
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+            if let opaqueImage = context.makeImage() {
+                finalImage = opaqueImage
+            } else {
+                finalImage = cgImage
+            }
+        } else {
+            finalImage = cgImage
+        }
 
-        CGImageDestinationAddImage(destination, cgImage, nil)
+        CGImageDestinationAddImage(destination, finalImage, imageProperties as CFDictionary)
         CGImageDestinationFinalize(destination)
 
         let resultData = mutableData as Data
