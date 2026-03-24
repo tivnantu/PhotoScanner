@@ -241,6 +241,24 @@ final class SimilarityClusteringViewModel {
         return thumbnailCache[assetId]
     }
     
+    /// 按需加载缩略图（用于详情页）
+    func loadThumbnail(for assetId: String) async -> UIImage? {
+        // 先检查缓存
+        if let cached = thumbnailCache[assetId] {
+            return cached
+        }
+        
+        // 从系统相册加载
+        if let resource = await photoLibraryAssetProvider.previewResource(for: assetId),
+           let data = resource.previewData,
+           let image = UIImage(data: data) {
+            thumbnailCache[assetId] = image
+            return image
+        }
+        
+        return nil
+    }
+    
     // MARK: - DBSCAN 算法（HNSW 加速版本）
     
     /// 使用 HNSW 索引加速的 DBSCAN 聚类

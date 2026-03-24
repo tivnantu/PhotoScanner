@@ -295,34 +295,26 @@ private struct ClusterDetailView: View {
     let cluster: PhotoCluster
     let viewModel: SimilarityClusteringViewModel
     @Environment(\.dismiss) private var dismiss
-    
+
+    // 按需加载的缩略图缓存
+    @State private var loadedThumbnails: [String: UIImage] = [:]
+
+    // 网格列宽
+    private let columnCount = 3
+    private let spacing: CGFloat = 4
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3),
-                    spacing: 4
+                    columns: Array(repeating: GridItem(.flexible(), spacing: spacing), count: columnCount),
+                    spacing: spacing
                 ) {
                     ForEach(cluster.assetIds, id: \.self) { assetId in
-                        GeometryReader { geometry in
-                            if let thumbnail = viewModel.thumbnail(for: assetId) {
-                                Image(uiImage: thumbnail)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: geometry.size.width, height: geometry.size.width)
-                                    .clipped()
-                            } else {
-                                Color(.systemGray5)
-                                    .overlay {
-                                        Image(systemName: "photo")
-                                            .foregroundStyle(.secondary)
-                                    }
-                            }
-                        }
-                        .aspectRatio(1, contentMode: .fill)
+                        thumbnailCell(for: assetId)
                     }
                 }
-                .padding(4)
+                .padding(spacing)
             }
             .navigationTitle("\(cluster.assetIds.count) 张相似图片")
             .navigationBarTitleDisplayMode(.inline)
@@ -331,6 +323,35 @@ private struct ClusterDetailView: View {
                     Button("完成") {
                         dismiss()
                     }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnailCell(for assetId: String) -> some View {
+        let thumbnail = viewModel.thumbnail(for: assetId) ?? loadedThumbnails[assetId]
+
+        ZStack {
+            if let image = thumbnail {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Color(.systemGray5)
+                    .overlay {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+            }
+        }
+        .aspectRatio(1, contentMode: .fill)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .task(id: assetId) {
+            // 按需加载缺失的缩略图
+            if thumbnail == nil {
+                if let image = await viewModel.loadThumbnail(for: assetId) {
+                    loadedThumbnails[assetId] = image
                 }
             }
         }
