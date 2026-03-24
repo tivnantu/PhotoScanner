@@ -757,13 +757,10 @@ class SettingsViewModel {
                     try await self.startBuildingFromPhotoLibrary()
 
                 case .failed:
-                    // 上次失败了，尝试恢复
-                    Logger.app.info("resumeBuilding: 恢复失败的构建")
-                    _ = try await self.indexEngine.resumeBuildIfNeeded { [weak self] buildState in
-                        Task { @MainActor in
-                            self?.handleBuildStateUpdate(buildState)
-                        }
-                    }
+                    // 上次失败了，清理后重新构建
+                    Logger.app.info("resumeBuilding: 清理失败状态，重新构建")
+                    try await self.indexStore.clearTransientBuildArtifacts()
+                    try await self.startBuildingFromPhotoLibrary()
                 }
 
                 // 构建完成（或取消），刷新状态
