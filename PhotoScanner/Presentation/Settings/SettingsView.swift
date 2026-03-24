@@ -757,54 +757,79 @@ class SettingsViewModel {
         guard accessState.hasReadAccess else {
             throw PSError.invalidInput("没有相册访问权限")
         }
-        
+
         // 获取所有图片资源
         let fetchOptions = PHFetchOptions()
         fetchOptions.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
         fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         let fetchResult = PHAsset.fetchAssets(with: fetchOptions)
-        
+
         guard fetchResult.count > 0 else {
             throw PSError.invalidInput("相册中没有图片")
         }
-        
+
         // 限制最大索引数量（根据用户选择）
         let limit = selectedLimit.rawValue
         let maxIndexCount = limit > 0 ? min(fetchResult.count, limit) : fetchResult.count
-        
+
         Logger.app.info("开始从相册导入 \(maxIndexCount) 张图片用于索引（限制: \(self.selectedLimit.displayName)）")
-        
-        // 创建 IndexedAssetInput 列表
-        var inputs: [IndexedAssetInput] = []
-        
-        for i in 0..<maxIndexCount {
-            let asset = fetchResult.object(at: i)
-            let localIdentifier = asset.localIdentifier
-            
-            // 获取缩略图数据用于生成指纹
-            if let thumbnailData = await photoLibraryAssetProvider.previewResource(for: localIdentifier)?.previewData {
-                do {
-                    let input = try IndexedAssetInput(
-                        assetLocalIdentifier: localIdentifier,
-                        imageData: thumbnailData,
-                        createdAt: asset.creationDate ?? Date()
-                    )
-                    inputs.append(input)
-                } catch {
-                    Logger.app.warning("创建 IndexedAssetInput 失败: \(localIdentifier)")
-                }
-            }
-            
-            // 每 100 张报告一次进度
-            if i % 100 == 0 {
-                Logger.app.info("已导入 \(i)/\(maxIndexCount) 张图片")
-            }
+
+        // 提前设置总数，让用户看到真实进度
+        await MainActor.run {
+            self.totalCount = maxIndexCount
         }
-        
+
+        // 并行获取图片数据（批量处理，避免内存占用过大）
+        let batchSize = 50  // 每批处理 50 张
+        var inputs: [IndexedAssetInput] = []
+
+        for batchStart in stride(from: 0, to: maxIndexCount, by: batchSize) {
+            let batchEnd = min(batchStart + batchSize, maxIndexCount)
+
+            // 并行获取当前批次的图片数据
+            let batchInputs = await withTaskGroup(of: IndexedAssetInput?.self, returning: [IndexedAssetInput].self) { group in
+                for i in batchStart..<batchEnd {
+                    let asset = fetchResult.object(at: i)
+                    let localIdentifier = asset.localIdentifier
+                    let createdAt = asset.creationDate ?? Date()
+
+                    group.addTask {
+                        guard let thumbnailData = await self.photoLibraryAssetProvider.previewResource(for: localIdentifier)?.previewData else {
+                            return nil
+                        }
+
+                        return try? IndexedAssetInput(
+                            assetLocalIdentifier: localIdentifier,
+                            imageData: thumbnailData,
+                            createdAt: createdAt
+                        )
+                    }
+                }
+
+                var results: [IndexedAssetInput] = []
+                for await result in group {
+                    if let input = result {
+                        results.append(input)
+                    }
+                }
+                return results
+            }
+
+            inputs.append(contentsOf: batchInputs)
+
+            // 更新进度
+            let completedBatch = batchEnd
+            await MainActor.run {
+                self.completedCount = completedBatch
+            }
+
+            Logger.app.info("已导入 \(completedBatch)/\(maxIndexCount) 张图片")
+        }
+
         guard !inputs.isEmpty else {
             throw PSError.invalidInput("没有可索引的图片")
         }
-        
+
         Logger.app.info("成功导入 \(inputs.count) 张图片，开始构建索引")
         
         // 调用 addAssetsAndRebuild 开始构建

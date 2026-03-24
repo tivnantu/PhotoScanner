@@ -256,9 +256,27 @@ actor PhotoLibraryAssetProvider {
         }
 
         CGImageDestinationAddImage(destination, finalImage, imageProperties as CFDictionary)
-        CGImageDestinationFinalize(destination)
+        guard CGImageDestinationFinalize(destination) else {
+            // JPEG 编码失败，返回原始数据
+            await recordPerformance(
+                .photoLibraryPreview,
+                startedAt: startedAt,
+                detail: "\(shortIdentifier(localIdentifier)) JPEG 编码失败，使用原始数据"
+            )
+            return imageData
+        }
 
         let resultData = mutableData as Data
+
+        // 验证结果数据有效性
+        guard !resultData.isEmpty else {
+            await recordPerformance(
+                .photoLibraryPreview,
+                startedAt: startedAt,
+                detail: "\(shortIdentifier(localIdentifier)) JPEG 编码结果为空，使用原始数据"
+            )
+            return imageData
+        }
 
         // 存入 ThumbnailCache（供后续搜索复用）
         if let cache = thumbnailCache, let uiImage = UIImage(data: resultData) {
