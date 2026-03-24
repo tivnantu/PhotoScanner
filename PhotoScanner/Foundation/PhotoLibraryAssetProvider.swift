@@ -229,9 +229,10 @@ actor PhotoLibraryAssetProvider {
         if cgImage.alphaInfo != .none && cgImage.alphaInfo != .noneSkipLast && cgImage.alphaInfo != .noneSkipFirst {
             // 创建不透明上下文绘制图像（去除 Alpha）
             let colorSpace = cgImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
-            let bitmapInfo = CGBitmapInfo.byteOrder32Host.rawValue | CGImageAlphaInfo.noneSkipLast.rawValue
+            // 使用默认位图信息，不指定 byteOrder，让系统决定
+            let bitmapInfo = CGImageAlphaInfo.noneSkipLast.rawValue
             
-            guard let context = CGContext(
+            if let context = CGContext(
                 data: nil,
                 width: cgImage.width,
                 height: cgImage.height,
@@ -239,15 +240,15 @@ actor PhotoLibraryAssetProvider {
                 bytesPerRow: 0,
                 space: colorSpace,
                 bitmapInfo: bitmapInfo
-            ) else {
-                // 无法创建上下文，直接使用原图
-                finalImage = cgImage
-            }
-            
-            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
-            if let opaqueImage = context.makeImage() {
-                finalImage = opaqueImage
+            ) {
+                context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+                if let opaqueImage = context.makeImage() {
+                    finalImage = opaqueImage
+                } else {
+                    finalImage = cgImage
+                }
             } else {
+                // 无法创建上下文，直接使用原图
                 finalImage = cgImage
             }
         } else {

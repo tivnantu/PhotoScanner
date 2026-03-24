@@ -12,11 +12,11 @@ import OSLog
 struct SimilarityClusteringView: View {
     @Environment(\.services) private var services
     
-    @State private var viewModel: SimilarityClusteringViewModel
+    @Bindable private var viewModel: SimilarityClusteringViewModel
     @State private var selectedCluster: PhotoCluster?
     
     init(services: AppServices) {
-        _viewModel = State(initialValue: SimilarityClusteringViewModel(services: services))
+        viewModel = SimilarityClusteringViewModel(services: services)
     }
     
     var body: some View {
