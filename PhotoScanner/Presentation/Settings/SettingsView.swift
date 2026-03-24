@@ -243,15 +243,25 @@ private struct IndexStatusCard: View {
                     .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("正在获取缩略图")
+                    Text(viewModel.buildPhase.rawValue)
                         .font(.subheadline)
                         .fontWeight(.medium)
 
                     if viewModel.totalCount > 0 {
-                        Text("已获取 \(viewModel.successCount.formatted()) 张 · 处理中 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .contentTransition(.numericText())
+                        switch viewModel.buildPhase {
+                        case .importingThumbnails:
+                            Text("已获取 \(viewModel.successCount.formatted()) 张 · 失败 \(viewModel.failedCount.formatted()) 张 · 处理中 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        case .buildingIndex:
+                            Text("已构建 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        default:
+                            Text("\(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
                         Text("正在初始化...")
                             .font(.caption)
@@ -575,13 +585,24 @@ class SettingsViewModel {
     private let indexStore: DiskBackedIndexStore
     private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
     
+    // 构建阶段
+    enum BuildPhase: String {
+        case idle = "空闲"
+        case importingThumbnails = "导入缩略图"
+        case buildingIndex = "构建索引"
+        case completed = "已完成"
+        case preparing = "准备中"
+    }
+    
     // 状态
     var isBuilding: Bool = false
     var canResumeBuilding: Bool = false
+    var buildPhase: BuildPhase = .idle
     var buildProgress: Double = 0
     var completedCount: Int = 0
     var totalCount: Int = 0
     var successCount: Int = 0  // 成功获取缩略图数量
+    var failedCount: Int = 0   // 失败数量
     
     var totalLibraryCount: Int = 0
     var indexedCount: Int = 0
@@ -607,31 +628,36 @@ class SettingsViewModel {
     func refreshStatus() async {
         // 获取索引状态
         let state = await indexEngine.loadCurrentState()
-        
+
         switch state {
         case .building(let progress):
             isBuilding = true
             canResumeBuilding = false
+            buildPhase = .buildingIndex
             buildProgress = progress.fractionCompleted
             completedCount = progress.completedCount
             totalCount = progress.totalCount
-            
+
         case .preparing:
             isBuilding = true
             canResumeBuilding = false
-            
+            buildPhase = .preparing
+
         case .ready(let manifest):
             isBuilding = false
             canResumeBuilding = false
+            buildPhase = .completed
             indexedCount = manifest.itemCount
-            
+
         case .failed:
             isBuilding = false
             canResumeBuilding = false
-            
+            buildPhase = .idle
+
         case .idle:
             isBuilding = false
             canResumeBuilding = false
+            buildPhase = .idle
         }
         
         // 获取真实图库总量
@@ -713,6 +739,7 @@ class SettingsViewModel {
             await MainActor.run {
                 self.isBuilding = true
                 self.canResumeBuilding = false
+                self.buildPhase = .importingThumbnails
             }
 
             do {
@@ -725,6 +752,9 @@ class SettingsViewModel {
                 case .building, .preparing:
                     // 已有进行中的构建，恢复它
                     Logger.app.info("resumeBuilding: 恢复进行中的构建")
+                    await MainActor.run {
+                        self.buildPhase = .buildingIndex
+                    }
                     _ = try await self.indexEngine.resumeBuildIfNeeded { [weak self] buildState in
                         Task { @MainActor in
                             self?.handleBuildStateUpdate(buildState)
@@ -787,14 +817,18 @@ class SettingsViewModel {
 
         Logger.app.info("开始从相册导入 \(maxIndexCount) 张图片用于索引（限制: \(self.selectedLimit.displayName)）")
 
-        // 提前设置总数，让用户看到真实进度
+        // 阶段 1：导入缩略图
         await MainActor.run {
+            self.buildPhase = .importingThumbnails
             self.totalCount = maxIndexCount
+            self.completedCount = 0
+            self.successCount = 0
+            self.failedCount = 0
         }
 
         // 串行获取图片数据（参考 V1，避免 PHImageManager 过载和 iCloud 下载超时）
         var inputs: [IndexedAssetInput] = []
-        var failedCount = 0
+        var importFailedCount = 0
 
         for i in 0..<maxIndexCount {
             let asset = fetchResult.object(at: i)
@@ -810,10 +844,10 @@ class SettingsViewModel {
                     )
                     inputs.append(input)
                 } catch {
-                    failedCount += 1
+                    importFailedCount += 1
                 }
             } else {
-                failedCount += 1
+                importFailedCount += 1
             }
 
             // 更新进度
@@ -821,11 +855,12 @@ class SettingsViewModel {
             await MainActor.run {
                 self.completedCount = completed
                 self.successCount = inputs.count
+                self.failedCount = importFailedCount
             }
 
             // 每 50 张打印一次进度
             if completed % 50 == 0 {
-                Logger.app.info("已处理 \(completed)/\(maxIndexCount) 张，成功 \(inputs.count) 张，失败 \(failedCount) 张")
+                Logger.app.info("已处理 \(completed)/\(maxIndexCount) 张，成功 \(inputs.count) 张，失败 \(importFailedCount) 张")
             }
         }
 
@@ -833,8 +868,15 @@ class SettingsViewModel {
             throw PSError.invalidInput("没有可索引的图片")
         }
 
-        Logger.app.info("导入完成：成功 \(inputs.count) 张，失败 \(failedCount) 张，开始构建索引")
-        
+        Logger.app.info("导入完成：成功 \(inputs.count) 张，失败 \(importFailedCount) 张，开始构建索引")
+
+        // 阶段 2：构建索引
+        await MainActor.run {
+            self.buildPhase = .buildingIndex
+            self.totalCount = inputs.count
+            self.completedCount = 0
+        }
+
         // 调用 addAssetsAndRebuild 开始构建
         _ = try await indexEngine.addAssetsAndRebuild(inputs) { [weak self] buildState in
             Task { @MainActor in
@@ -873,16 +915,17 @@ class SettingsViewModel {
             buildProgress = progress.fractionCompleted
             completedCount = progress.completedCount
             totalCount = progress.totalCount
-            
+
         case .ready(let manifest):
             isBuilding = false
             canResumeBuilding = false
+            buildPhase = .completed
             indexedCount = manifest.itemCount
-            
+
         case .failed:
             isBuilding = false
             canResumeBuilding = true
-            
+
         default:
             break
         }
