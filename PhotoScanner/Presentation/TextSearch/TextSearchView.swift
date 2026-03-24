@@ -324,7 +324,7 @@ struct TextSearchView: View {
         switch buildState {
         case .idle:
             return .secondary
-        case .preparing, .building:
+        case .preparing, .building, .thermalPaused:
             return .accentColor
         case .ready:
             return .green

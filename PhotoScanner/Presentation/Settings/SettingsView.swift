@@ -236,10 +236,10 @@ private struct IndexStatusCard: View {
     private var buildingCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                Image(systemName: "arrow.trianglehead.clockwise")
+                Image(systemName: viewModel.isThermalPaused ? "thermometer.sun" : "arrow.trianglehead.clockwise")
                     .font(.system(size: 18))
-                    .foregroundStyle(.blue)
-                    .symbolEffect(.rotate, isActive: true)
+                    .foregroundStyle(viewModel.isThermalPaused ? .orange : .blue)
+                    .symbolEffect(.rotate, isActive: !viewModel.isThermalPaused)
                     .frame(width: 28, height: 28)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -257,6 +257,10 @@ private struct IndexStatusCard: View {
                             Text("已构建 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        case .thermalPaused:
+                            Text("已构建 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张 · 为避免设备过热，正在等待冷却（约 1 分钟）")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
                         default:
                             Text("\(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
                                 .font(.caption)
@@ -274,7 +278,7 @@ private struct IndexStatusCard: View {
 
             if viewModel.totalCount > 0 {
                 ProgressView(value: Double(viewModel.completedCount), total: Double(max(viewModel.totalCount, 1)))
-                    .tint(.blue)
+                    .tint(viewModel.isThermalPaused ? .orange : .blue)
             }
         }
     }
@@ -599,14 +603,16 @@ class SettingsViewModel {
         case idle = "空闲"
         case importingThumbnails = "导入缩略图"
         case buildingIndex = "构建索引"
+        case thermalPaused = "设备冷却中"
         case completed = "已完成"
         case preparing = "准备中"
     }
-    
+
     // 状态
     var isBuilding: Bool = false
     var canResumeBuilding: Bool = false
     var buildPhase: BuildPhase = .idle
+    var isThermalPaused: Bool = false  // 热冷却暂停
     var buildProgress: Double = 0
     var completedCount: Int = 0
     var totalCount: Int = 0
@@ -649,6 +655,16 @@ class SettingsViewModel {
             isBuilding = false  // 不自动构建，等待用户确认
             canResumeBuilding = true
             buildPhase = .buildingIndex
+            isThermalPaused = false
+            buildProgress = progress.fractionCompleted
+            completedCount = progress.completedCount
+            totalCount = progress.totalCount
+
+        case .thermalPaused(let progress):
+            isBuilding = false
+            canResumeBuilding = true
+            buildPhase = .thermalPaused
+            isThermalPaused = true
             buildProgress = progress.fractionCompleted
             completedCount = progress.completedCount
             totalCount = progress.totalCount
@@ -657,17 +673,20 @@ class SettingsViewModel {
             isBuilding = false
             canResumeBuilding = true
             buildPhase = .preparing
+            isThermalPaused = false
 
         case .ready(let manifest):
             isBuilding = false
             canResumeBuilding = false
             buildPhase = .completed
+            isThermalPaused = false
             indexedCount = manifest.itemCount
 
         case .failed:
             isBuilding = false
             canResumeBuilding = true
             buildPhase = .idle
+            isThermalPaused = false
 
         case .idle:
             isBuilding = false
@@ -755,7 +774,7 @@ class SettingsViewModel {
                 let state = await self.indexEngine.loadCurrentState()
 
                 switch state {
-                case .building, .preparing:
+                case .building, .preparing, .thermalPaused:
                     // 已有进行中的构建，恢复它
                     await MainActor.run {
                         self.buildPhase = .buildingIndex
@@ -914,6 +933,15 @@ class SettingsViewModel {
     private func handleBuildStateUpdate(_ state: IndexBuildState) {
         switch state {
         case .building(let progress):
+            isThermalPaused = false
+            buildPhase = .buildingIndex
+            buildProgress = progress.fractionCompleted
+            completedCount = progress.completedCount
+            totalCount = progress.totalCount
+
+        case .thermalPaused(let progress):
+            isThermalPaused = true
+            buildPhase = .thermalPaused
             buildProgress = progress.fractionCompleted
             completedCount = progress.completedCount
             totalCount = progress.totalCount
@@ -921,12 +949,14 @@ class SettingsViewModel {
         case .ready(let manifest):
             isBuilding = false
             canResumeBuilding = false
+            isThermalPaused = false
             buildPhase = .completed
             indexedCount = manifest.itemCount
 
         case .failed:
             isBuilding = false
             canResumeBuilding = true
+            isThermalPaused = false
 
         default:
             break

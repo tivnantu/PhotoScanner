@@ -7,9 +7,13 @@ actor IndexEngine {
     private let vectorStore: any VectorStore
     private let photoLibraryAssetProvider: PhotoLibraryAssetProvider
     private let performanceStore: RuntimePerformanceStore
-    
+
     /// 热管理节流器：防止设备过热
-    private let thermalThrottler = ThermalThrottler()
+    private var thermalThrottler: ThermalThrottler?
+
+    /// 当前进度（用于热冷却通知）
+    private var currentProgress: IndexBuildProgress?
+    private var currentProgressHandler: (@Sendable (IndexBuildState) async -> Void)?
 
     init(
         embeddingService: EmbeddingService,
@@ -148,7 +152,17 @@ actor IndexEngine {
         let candidateAssetIdentifiers = sortedAssets.map(\.assetLocalIdentifier)
         let totalCount = sortedAssets.count
         var completedCount = 0
-        
+
+        // 保存进度处理器（用于热冷却通知）
+        self.currentProgressHandler = progressHandler
+
+        // 创建热管理节流器（带状态回调）
+        self.thermalThrottler = ThermalThrottler { [weak self] state in
+            Task { [weak self] in
+                await self?.handleThermalStateChange(state)
+            }
+        }
+
         // 错误恢复策略
         var consecutiveFailures = 0
         var skippedCount = 0
@@ -207,7 +221,7 @@ actor IndexEngine {
                 }
 
                 // 热节流：过热时暂停，冷却后恢复
-                try await thermalThrottler.waitIfNeeded()
+                try await thermalThrottler?.waitIfNeeded()
 
                 // 取一批待处理资产
                 let batchSize = min(maxConcurrency, pendingAssets.count)
@@ -264,6 +278,7 @@ actor IndexEngine {
                         try await indexStore.saveCheckpoint(checkpoint)
 
                         if let progress = checkpoint.progress {
+                            self.currentProgress = progress  // 保存当前进度（用于热冷却通知）
                             await progressHandler?(.building(progress: progress))
                         }
 
@@ -281,7 +296,7 @@ actor IndexEngine {
                 }
 
                 // 批次结束后让出 CPU
-                await thermalThrottler.yieldBetweenInferences()
+                await thermalThrottler?.yieldBetweenInferences()
             }
 
             let finalEntries = sortedAssets.compactMap { entriesByID[$0.assetLocalIdentifier] }
@@ -364,6 +379,21 @@ actor IndexEngine {
         ].joined(separator: "|")
     }
 
+    /// 处理热状态变化（从 ThermalThrottler 回调）
+    private func handleThermalStateChange(_ state: ThermalThrottler.ThrottleState) async {
+        guard let progress = currentProgress, let handler = currentProgressHandler else { return }
+
+        switch state {
+        case .running:
+            // 恢复正常，通知 UI
+            await handler(.building(progress: progress))
+        case .paused:
+            // 过热暂停，通知 UI
+            Logger.index.warning("设备过热，暂停索引构建（冷却等待 1 分钟）")
+            await handler(.thermalPaused(progress: progress))
+        }
+    }
+
     private static func restoreDetail(for state: IndexBuildState) -> String {
         switch state {
         case .idle:
@@ -372,6 +402,8 @@ actor IndexEngine {
             return "恢复到 preparing 状态"
         case .building(let progress):
             return "恢复到 building：\(progress.completedCount)/\(progress.totalCount)"
+        case .thermalPaused(let progress):
+            return "恢复到 thermalPaused：\(progress.completedCount)/\(progress.totalCount)"
         case .ready(let manifest):
             return "恢复到 ready：\(manifest.itemCount) 张"
         case .failed(let message):

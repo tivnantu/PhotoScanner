@@ -48,8 +48,8 @@ actor ThermalThrottler {
     /// 推理间隔（毫秒），根据温度动态调整
     private(set) var inferenceDelayMs: UInt64 = 0
 
-    /// 热状态检查间隔（暂停期间轮询）
-    private let pollIntervalSeconds: TimeInterval = 3.0
+    /// 热状态检查间隔（暂停期间轮询）- 1 分钟
+    private let pollIntervalSeconds: TimeInterval = 60.0
 
     /// 暂停回调（UI 更新用）
     private var onStateChanged: (@Sendable (ThrottleState) -> Void)?

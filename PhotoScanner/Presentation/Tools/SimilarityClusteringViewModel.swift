@@ -171,11 +171,11 @@ final class SimilarityClusteringViewModel {
     /// 检查索引状态
     func checkIndexStatus() async {
         let buildState = await indexEngine.loadCurrentState()
-        
+
         switch buildState {
         case .idle:
             indexState = .idle
-        case .preparing, .building:
+        case .preparing, .building, .thermalPaused:
             indexState = .building
         case .ready(let manifest):
             indexState = .ready(count: manifest.itemCount)

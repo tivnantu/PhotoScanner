@@ -38,6 +38,7 @@ enum IndexBuildState: Sendable, Equatable {
     case idle
     case preparing
     case building(progress: IndexBuildProgress)
+    case thermalPaused(progress: IndexBuildProgress)  // 热冷却暂停
     case ready(manifest: IndexManifest)
     case failed(message: String)
 }
@@ -51,6 +52,8 @@ extension IndexBuildState: CustomStringConvertible {
             return "preparing"
         case .building(let progress):
             return "building(\(progress.completedCount)/\(progress.totalCount))"
+        case .thermalPaused(let progress):
+            return "thermalPaused(\(progress.completedCount)/\(progress.totalCount))"
         case .ready(let manifest):
             return "ready(\(manifest.itemCount) items)"
         case .failed(let message):

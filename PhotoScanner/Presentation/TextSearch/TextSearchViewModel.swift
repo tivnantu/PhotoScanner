@@ -101,7 +101,7 @@ final class TextSearchViewModel {
         switch buildState {
         case .idle:
             return indexedCount > 0 ? "tray.and.arrow.down" : "photo.badge.plus"
-        case .preparing, .building:
+        case .preparing, .building, .thermalPaused:
             return "gearshape.2"
         case .ready:
             return "checkmark.circle"
@@ -118,6 +118,8 @@ final class TextSearchViewModel {
             return "正在准备..."
         case .building(let progress):
             return "正在处理图片（\(progress.completedCount)/\(progress.totalCount)）"
+        case .thermalPaused(let progress):
+            return "设备冷却中（\(progress.completedCount)/\(progress.totalCount)）"
         case .ready(let manifest):
             return "可以搜索 \(manifest.itemCount) 张图片"
         case .failed:
@@ -136,6 +138,8 @@ final class TextSearchViewModel {
             return "正在整理图片并准备建立索引..."
         case .building(let progress):
             return "正在分析 \(progress.completedCount) / \(progress.totalCount) 张图片的视觉特征。"
+        case .thermalPaused(let progress):
+            return "为避免设备过热，正在等待冷却（约 1 分钟），已完成 \(progress.completedCount)/\(progress.totalCount)。"
         case .ready:
             return "已建立 \(indexedCount) 张图片的搜索索引，输入描述即可查找。"
         case .failed(let message):
