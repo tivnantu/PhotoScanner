@@ -223,6 +223,19 @@ actor IndexEngine {
                 // 热节流：过热时暂停，冷却后恢复
                 try await thermalThrottler?.waitIfNeeded()
 
+                // 再次检查取消（waitIfNeeded 可能阻塞了一段时间）
+                if Task.isCancelled {
+                    Logger.index.info("索引构建被取消（热节流后），已完成 \(completedCount)/\(totalCount)")
+                    try? await indexStore.saveCheckpoint(
+                        IndexCheckpoint.building(
+                            candidateAssetIdentifiers: candidateAssetIdentifiers,
+                            completedCount: completedCount,
+                            totalCount: totalCount
+                        )
+                    )
+                    return await loadCurrentState()
+                }
+
                 // 取一批待处理资产
                 let batchSize = min(maxConcurrency, pendingAssets.count)
                 let batch = Array(pendingAssets.prefix(batchSize))
@@ -234,10 +247,21 @@ actor IndexEngine {
 
                 await withTaskGroup(of: (StoredIndexedAsset, Result<(Data, [Float]), Error>).self) { group in
                     for asset in batch {
+                        // 检查取消状态，避免添加新任务
+                        if Task.isCancelled { return }
+
                         group.addTask {
+                            // 并行任务内部也检查取消
+                            if Task.isCancelled {
+                                return (asset, .failure(CancellationError()))
+                            }
                             do {
                                 // 并行获取图片数据
                                 let imageData = try await self.resolveImageData(for: asset)
+                                // 检查取消
+                                if Task.isCancelled {
+                                    return (asset, .failure(CancellationError()))
+                                }
                                 // 并行推理（embeddingService.embedImage 是线程安全的）
                                 let embedding = try await self.embeddingService.embedImage(imageData)
                                 return (asset, .success((imageData, embedding)))
@@ -249,7 +273,22 @@ actor IndexEngine {
 
                     for await result in group {
                         results.append(result)
+                        // 收集结果时也检查取消
+                        if Task.isCancelled { return }
                     }
+                }
+
+                // 如果被取消，保存进度并返回
+                if Task.isCancelled {
+                    Logger.index.info("索引构建被取消（批次后），已完成 \(completedCount)/\(totalCount)")
+                    try? await indexStore.saveCheckpoint(
+                        IndexCheckpoint.building(
+                            candidateAssetIdentifiers: candidateAssetIdentifiers,
+                            completedCount: completedCount,
+                            totalCount: totalCount
+                        )
+                    )
+                    return await loadCurrentState()
                 }
 
                 // 串行保存结果
