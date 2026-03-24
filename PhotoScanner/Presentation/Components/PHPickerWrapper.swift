@@ -64,11 +64,20 @@ struct PHPickerWrapper: UIViewControllerRepresentable {
 
             guard !results.isEmpty else { return }
 
-            Task {
+            Logger.ui.info("PHPicker: 开始处理 \(results.count) 个结果")
+
+            Task { [weak self] in
+                guard self != nil else {
+                    Logger.ui.warning("PHPicker: self 已释放")
+                    return
+                }
+
                 var items: [PHPickerResultItem] = []
                 items.reserveCapacity(results.count)
 
-                for result in results {
+                for (index, result) in results.enumerated() {
+                    Logger.ui.info("PHPicker: 处理第 \(index + 1) 个结果，assetIdentifier: \(result.assetIdentifier ?? "nil")")
+
                     // 获取真实的 PHAsset localIdentifier
                     guard let assetIdentifier = result.assetIdentifier else {
                         Logger.ui.warning("PHPicker: assetIdentifier 为 nil")
@@ -82,13 +91,19 @@ struct PHPickerWrapper: UIViewControllerRepresentable {
                             assetIdentifier: assetIdentifier,
                             imageData: data
                         ))
+                        Logger.ui.info("PHPicker: items.count = \(items.count)")
                     } else {
                         Logger.ui.warning("PHPicker: 加载图片数据失败，assetIdentifier: \(assetIdentifier)")
                     }
                 }
 
+                Logger.ui.info("PHPicker: 处理完成，items.count = \(items.count)")
                 if !items.isEmpty {
+                    Logger.ui.info("PHPicker: 调用 onComplete")
                     await parent.onComplete(items)
+                    Logger.ui.info("PHPicker: onComplete 调用完成")
+                } else {
+                    Logger.ui.warning("PHPicker: items 为空，不调用 onComplete")
                 }
             }
         }
