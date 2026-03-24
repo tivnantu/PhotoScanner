@@ -18,12 +18,12 @@ struct ContentView: View {
 
             ToolsView()
                 .tabItem {
-                    Label("工具", systemImage: "square.grid.2x2.fill")
+                    Label("发现", systemImage: "sparkles")
                 }
 
             SettingsView()
                 .tabItem {
-                    Label("设置", systemImage: "gearshape.fill")
+                    Label("设置", systemImage: "gear")
                 }
         }
     }

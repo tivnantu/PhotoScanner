@@ -1,22 +1,39 @@
 import SwiftUI
 import Photos
+import OSLog
 
-/// 设置页 - List + Section 布局
+/// 设置页 - 借鉴 V1 设计的卡片式布局
 struct SettingsView: View {
     @Environment(\.services) private var services
     @State private var viewModel: SettingsViewModel?
     
     var body: some View {
         NavigationStack {
-            Group {
-                if let viewModel {
-                    contentView(viewModel)
-                } else {
-                    ProgressView("加载中...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ScrollView {
+                VStack(spacing: 20) {
+                    if let viewModel {
+                        // 照片库状态卡片（V1 风格）
+                        PhotoLibrarySection(viewModel: viewModel)
+                        
+                        // 存储空间
+                        StorageSection(viewModel: viewModel)
+                        
+                        // 运行状态
+                        SystemStatusSection(viewModel: viewModel)
+                        
+                        // 关于
+                        AboutSection()
+                    } else {
+                        ProgressView("加载中...")
+                            .frame(maxWidth: .infinity, minHeight: 200)
+                    }
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 32)
             }
             .navigationTitle("设置")
+            .navigationBarTitleDisplayMode(.large)
             .task {
                 guard viewModel == nil else { return }
                 let nextViewModel = SettingsViewModel(services: services)
@@ -25,94 +42,308 @@ struct SettingsView: View {
             }
         }
     }
+}
+
+// MARK: - 照片库状态卡片
+
+private struct PhotoLibrarySection: View {
+    let viewModel: SettingsViewModel
+    @State private var showRebuildConfirmation = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // 标题
+            Text("照片库")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+            
+            // 状态卡片（V1 IndexStatusCard 风格）
+            IndexStatusCard(viewModel: viewModel)
+            
+            // 操作按钮
+            actionButtons
+        }
+    }
     
     @ViewBuilder
-    private func contentView(_ viewModel: SettingsViewModel) -> some View {
-        List {
-            // 扫描控制区
-            Section("扫描控制") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("扫描进度")
-                        .font(.headline)
-                    
-                    if viewModel.isBuilding {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ProgressView(value: viewModel.buildProgress)
-                            
-                            Text("已扫描 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        
-                        HStack {
-                            Spacer()
-                            
-                            Button("暂停") {
-                                Task {
-                                    await viewModel.pauseBuilding()
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    } else if viewModel.canResumeBuilding {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("索引构建已暂停")
-                                    .font(.subheadline)
-                                
-                                Text("已完成 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Button("继续") {
-                                Task {
-                                    await viewModel.resumeBuilding()
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    } else {
-                        Text("索引已就绪")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+    private var actionButtons: some View {
+        VStack(spacing: 10) {
+            // 构建中/暂停中：显示暂停/继续按钮
+            if viewModel.isBuilding {
+                SettingsButton(
+                    label: "暂停分析",
+                    icon: "pause.fill",
+                    iconColor: .orange
+                ) {
+                    Task { await viewModel.pauseBuilding() }
+                }
+            } else if viewModel.canResumeBuilding {
+                SettingsButton(
+                    label: "继续分析",
+                    icon: "play.fill",
+                    iconColor: .green
+                ) {
+                    Task { await viewModel.resumeBuilding() }
+                }
+            } else if viewModel.indexedCount == 0 {
+                // 未开始
+                SettingsButton(
+                    label: "开始扫描",
+                    icon: "arrow.trianglehead.clockwise",
+                    iconColor: .blue
+                ) {
+                    Task { await viewModel.resumeBuilding() }
+                }
+            } else {
+                // 已就绪但有待处理
+                if viewModel.totalLibraryCount > viewModel.indexedCount {
+                    SettingsButton(
+                        label: "继续扫描",
+                        icon: "arrow.trianglehead.clockwise",
+                        iconColor: .blue
+                    ) {
+                        Task { await viewModel.resumeBuilding() }
                     }
                 }
-                .padding(.vertical, 8)
+                
+                // 重新分析
+                SettingsButton(
+                    label: "重新分析所有照片",
+                    icon: "arrow.triangle.2.circlepath",
+                    iconColor: .secondary,
+                    isDestructive: false
+                ) {
+                    showRebuildConfirmation = true
+                }
+                .confirmationDialog(
+                    "重新分析所有照片",
+                    isPresented: $showRebuildConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("重新分析", role: .destructive) {
+                        Task {
+                            await viewModel.clearCache()
+                            await viewModel.resumeBuilding()
+                        }
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text("将清除已有的分析数据，重新扫描全部照片。过程中已有搜索功能不受影响。")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 索引状态卡片（V1 风格）
+
+private struct IndexStatusCard: View {
+    let viewModel: SettingsViewModel
+    
+    var body: some View {
+        Group {
+            if viewModel.isBuilding {
+                buildingCard
+            } else if viewModel.canResumeBuilding {
+                pausedCard
+            } else if viewModel.indexedCount > 0 {
+                readyCard
+            } else {
+                idleCard
+            }
+        }
+        .padding(16)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+    
+    // 未开始
+    private var idleCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18))
+                .foregroundStyle(.gray)
+                .frame(width: 28, height: 28)
+            
+            VStack(alignment: .leading, spacing: 3) {
+                Text("尚未建立搜索数据")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                if viewModel.totalLibraryCount > 0 {
+                    Text("相册共 \(viewModel.totalLibraryCount.formatted()) 张照片")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             
-            // 图库信息区
-            Section("图库信息") {
-                HStack {
-                    Text("图库总量")
-                    Spacer()
-                    Text(viewModel.totalLibraryCount.formatted())
-                        .foregroundStyle(.secondary)
+            Spacer()
+        }
+    }
+    
+    // 构建中
+    private var buildingCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.trianglehead.clockwise")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.blue)
+                    .symbolEffect(.rotate, isActive: true)
+                    .frame(width: 28, height: 28)
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("正在分析照片")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    if viewModel.totalCount > 0 {
+                        Text("\(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .contentTransition(.numericText())
+                    } else {
+                        Text("正在获取照片信息...")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
                 
-                HStack {
-                    Text("已索引")
-                    Spacer()
-                    Text(viewModel.indexedCount.formatted())
-                        .foregroundStyle(.secondary)
-                }
-                
-                HStack {
-                    Text("索引大小")
-                    Spacer()
-                    Text(viewModel.indexSize)
-                        .foregroundStyle(.secondary)
-                }
+                Spacer()
             }
             
-            // 缓存管理区
-            Section("缓存管理") {
+            if viewModel.totalCount > 0 {
+                ProgressView(value: Double(viewModel.completedCount), total: Double(max(viewModel.totalCount, 1)))
+                    .tint(.blue)
+            }
+        }
+    }
+    
+    // 已暂停
+    private var pausedCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: "pause.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.orange)
+                    .frame(width: 28, height: 28)
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("分析已暂停")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    Text("\(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张 · 已完成的部分可正常搜索")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
+                }
+                
+                Spacer()
+            }
+            
+            if viewModel.totalCount > 0 {
+                ProgressView(value: Double(viewModel.completedCount), total: Double(max(viewModel.totalCount, 1)))
+                    .tint(.orange)
+            }
+        }
+    }
+    
+    // 已就绪
+    private var readyCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.green)
+                .frame(width: 28, height: 28)
+            
+            VStack(alignment: .leading, spacing: 3) {
+                Text("搜索数据已就绪")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                Text("已索引 \(viewModel.indexedCount.formatted()) 张照片")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
+            
+            Spacer()
+        }
+    }
+}
+
+// MARK: - 设置按钮组件
+
+private struct SettingsButton: View {
+    let label: String
+    let icon: String
+    let iconColor: Color
+    var isDestructive: Bool = false
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundStyle(isDestructive ? .red : iconColor)
+                    .frame(width: 28, height: 28)
+                
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(isDestructive ? .red : .primary)
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 存储空间
+
+private struct StorageSection: View {
+    let viewModel: SettingsViewModel
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("存储空间")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+            
+            VStack(spacing: 0) {
+                InfoRow(label: "图库总量", value: viewModel.totalLibraryCount.formatted())
+                
+                Divider()
+                    .padding(.leading, 16)
+                
+                InfoRow(label: "已索引", value: viewModel.indexedCount.formatted())
+                
+                Divider()
+                    .padding(.leading, 16)
+                
+                InfoRow(label: "索引大小", value: viewModel.indexSize)
+                
+                Divider()
+                    .padding(.leading, 16)
+                
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("清理缓存")
-                        Text("缓存大小: \(viewModel.cacheSize)")
+                        Text("缓存")
+                            .font(.subheadline)
+                        Text(viewModel.cacheSize)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -120,32 +351,133 @@ struct SettingsView: View {
                     Spacer()
                     
                     Button("清理") {
-                        Task {
-                            await viewModel.clearCache()
-                        }
+                        Task { await viewModel.clearCache() }
                     }
-                    .buttonStyle(.bordered)
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+    }
+}
+
+// MARK: - 信息行
+
+private struct InfoRow: View {
+    let label: String
+    let value: String
+    
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.subheadline)
             
-            // 关于区
-            Section("关于") {
-                HStack {
-                    Text("版本")
-                    Spacer()
-                    Text("1.0.0")
-                        .foregroundStyle(.secondary)
-                }
+            Spacer()
+            
+            Text(value)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+}
+
+// MARK: - 运行状态
+
+private struct SystemStatusSection: View {
+    let viewModel: SettingsViewModel
+    @State private var memoryUsage: String = "--"
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("运行状态")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+            
+            VStack(spacing: 0) {
+                InfoRow(label: "内存占用", value: memoryUsage)
+                
+                Divider()
+                    .padding(.leading, 16)
+                
+                InfoRow(label: "索引状态", value: indexStateDescription)
+            }
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .task {
+            await updateMemoryUsage()
+        }
+    }
+    
+    private var indexStateDescription: String {
+        if viewModel.isBuilding {
+            return "分析中 \(viewModel.completedCount)/\(viewModel.totalCount)"
+        } else if viewModel.canResumeBuilding {
+            return "已暂停 \(viewModel.completedCount)/\(viewModel.totalCount)"
+        } else if viewModel.indexedCount > 0 {
+            return "已就绪 \(viewModel.indexedCount) 张"
+        } else {
+            return "未开始"
+        }
+    }
+    
+    private func updateMemoryUsage() async {
+        // 简单估算：embedding 大小 + 一些开销
+        let embeddingSize = viewModel.indexedCount * 512 * MemoryLayout<Float>.size
+        let totalSize = embeddingSize + 50 * 1024 * 1024  // 50MB 开销
+        let sizeInMB = Double(totalSize) / 1024 / 1024
+        memoryUsage = sizeInMB > 0 ? String(format: "%.1f MB", sizeInMB) : "--"
+    }
+}
+
+// MARK: - 关于
+
+private struct AboutSection: View {
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("关于")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+            
+            VStack(spacing: 0) {
+                InfoRow(label: "版本", value: "v\(appVersion)")
+                
+                Divider()
+                    .padding(.leading, 16)
                 
                 Link(destination: URL(string: "https://github.com")!) {
                     HStack {
                         Text("开源许可")
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                        
                         Spacer()
+                        
                         Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.tertiary)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
             }
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
         }
     }
 }

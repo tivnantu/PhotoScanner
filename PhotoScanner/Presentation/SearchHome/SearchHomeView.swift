@@ -81,17 +81,17 @@ struct SearchHomeView: View {
     private var initialContent: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // Logo区域
+                // Logo区域（V1 风格 Hero 区域）
                 VStack(spacing: 16) {
-                    // 图标
+                    // 图标（大圆角 20pt）
                     ZStack {
                         RoundedRectangle(cornerRadius: 20)
-                            .fill(Color.blue.opacity(0.1))
+                            .fill(Color.accentColor.opacity(0.12))
                             .frame(width: 80, height: 80)
                         
-                        Image(systemName: "photo.fill")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.blue)
+                        Image(systemName: "sparkles.rectangle.stack")
+                            .font(.system(size: 36, weight: .light))
+                            .foregroundStyle(Color.accentColor)
                     }
                     
                     // 应用名
@@ -138,7 +138,7 @@ struct SearchHomeView: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                    .font(.system(size: 17))
+                    .font(.system(size: 17, weight: .medium))
                 
                 TextField("搜索照片...", text: $searchText)
                     .textFieldStyle(.plain)
@@ -157,13 +157,13 @@ struct SearchHomeView: View {
             PhotosPicker(selection: $selectedPickerItem, matching: .images) {
                 Image(systemName: "photo")
                     .font(.system(size: 20))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Color.accentColor)
             }
             .disabled(searchMode != .none)
             .padding(.trailing, 12)
         }
         .background(Color(.systemGray6))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: 14))  // V1 medium 圆角
         .padding(.horizontal, 20)
     }
     
@@ -171,25 +171,28 @@ struct SearchHomeView: View {
     
     @ViewBuilder
     private var searchSuggestionsView: some View {
-        HStack(spacing: 12) {
-            ForEach(searchSuggestions, id: \.self) { suggestion in
-                Button(action: {
-                    searchText = suggestion
-                    Task {
-                        await performTextSearch()
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(searchSuggestions, id: \.self) { suggestion in
+                    Button(action: {
+                        searchText = suggestion
+                        Task {
+                            await performTextSearch()
+                        }
+                    }) {
+                        Text(suggestion)
+                            .font(.subheadline)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color(.systemGray6))
+                            .foregroundStyle(.primary)
+                            .clipShape(Capsule())
                     }
-                }) {
-                    Text(suggestion)
-                        .font(.subheadline)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color(.systemGray6))
-                        .foregroundStyle(.primary)
-                        .clipShape(Capsule())
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(.horizontal, 20)
         }
-        .padding(.horizontal, 20)
     }
     
     // MARK: - History Section
@@ -200,6 +203,7 @@ struct SearchHomeView: View {
             HStack {
                 Text("搜索历史")
                     .font(.subheadline)
+                    .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
                 
                 Spacer()
@@ -208,10 +212,11 @@ struct SearchHomeView: View {
                     Button("清除") {
                         showClearHistoryAlert = true
                     }
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 }
             }
+            .padding(.horizontal, 4)
             
             if !searchHistory.isEmpty {
                 VStack(spacing: 0) {
@@ -219,8 +224,8 @@ struct SearchHomeView: View {
                         historyRow(item: item, isLast: index == searchHistory.count - 1)
                     }
                 }
-                .background(Color(.systemGray6).opacity(0.5))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .background(Color(.systemGray6))
+                .clipShape(RoundedRectangle(cornerRadius: 14))  // V1 medium 圆角
             }
         }
         .padding(.horizontal, 20)
@@ -234,7 +239,7 @@ struct SearchHomeView: View {
                 await performTextSearch()
             }
         }) {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Image(systemName: "clock")
                     .font(.system(size: 14))
                     .foregroundStyle(.tertiary)
@@ -248,18 +253,19 @@ struct SearchHomeView: View {
                 Text("\(item.resultCount)张")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                    .monospacedDigit()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(isLast ? Color.clear : Color(.systemBackground))
         .overlay(
             Rectangle()
-                .fill(Color(.systemGray5).opacity(0.5))
+                .fill(Color(.systemGray5))
                 .frame(height: 0.5)
-                .padding(.leading, 36)
+                .padding(.leading, 44)
+                .opacity(isLast ? 0 : 1)
             , alignment: .bottom
         )
     }
@@ -269,7 +275,7 @@ struct SearchHomeView: View {
     @ViewBuilder
     private var searchResultsView: some View {
         VStack(spacing: 0) {
-            // 顶部搜索栏
+            // 顶部搜索栏（V1 风格）
             HStack(spacing: 12) {
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.3)) {
@@ -284,7 +290,7 @@ struct SearchHomeView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
-                        .font(.system(size: 17))
+                        .font(.system(size: 17, weight: .medium))
                     
                     TextField("搜索照片...", text: $searchText)
                         .textFieldStyle(.plain)
@@ -306,7 +312,7 @@ struct SearchHomeView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(Color(.systemGray6))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
