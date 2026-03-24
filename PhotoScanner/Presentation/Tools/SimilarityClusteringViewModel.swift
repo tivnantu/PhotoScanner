@@ -424,7 +424,7 @@ final class SimilarityClusteringViewModel {
         return clusters.sorted { $0.assetIds.count > $1.assetIds.count }
     }
     
-    /// 并行预计算所有点的邻居表
+    /// 批量预计算所有点的邻居表
     /// - Returns: 索引 -> 邻居索引数组
     private func precomputeNeighborTable(
         entries: [IndexEntry],
@@ -432,43 +432,35 @@ final class SimilarityClusteringViewModel {
         threshold: Float
     ) async throws -> [[Int]] {
         let n = entries.count
-        let k = min(100, n)  // 每个 point 搜索 top-K
+        let k = min(100, n)
         
-        // 并行搜索所有点
-        let results = try await withThrowingTaskGroup(of: (Int, [Int]).self) { group in
-            for i in 0..<n {
-                group.addTask {
-                    let searchResults = try await self.vectorStore.search(
-                        queryEmbedding: entries[i].embedding,
-                        topK: k
-                    )
-                    
-                    // 过滤出邻居索引
-                    var neighbors: [Int] = []
-                    neighbors.reserveCapacity(min(k, 20))
-                    
-                    for result in searchResults {
-                        if result.score >= threshold {
-                            if let index = idToIndex[result.assetLocalIdentifier],
-                               result.assetLocalIdentifier != entries[i].assetLocalIdentifier {
-                                neighbors.append(index)
-                            }
-                        }
+        // 提取所有 embedding
+        let embeddings = entries.map { $0.embedding }
+        
+        // 一次性批量搜索（避免锁竞争）
+        let allResults = try await vectorStore.batchSearch(queryEmbeddings: embeddings, topK: k)
+        
+        // 转换为邻居表
+        var neighborTable: [[Int]] = []
+        neighborTable.reserveCapacity(n)
+        
+        for (i, results) in allResults.enumerated() {
+            var neighbors: [Int] = []
+            neighbors.reserveCapacity(min(k, 20))
+            
+            for result in results {
+                if result.score >= threshold {
+                    if let index = idToIndex[result.assetLocalIdentifier],
+                       result.assetLocalIdentifier != entries[i].assetLocalIdentifier {
+                        neighbors.append(index)
                     }
-                    
-                    return (i, neighbors)
                 }
             }
             
-            // 收集结果
-            var table: [[Int]] = Array(repeating: [], count: n)
-            for try await (index, neighbors) in group {
-                table[index] = neighbors
-            }
-            return table
+            neighborTable.append(neighbors)
         }
         
-        return results
+        return neighborTable
     }
     
     /// 加载缩略图

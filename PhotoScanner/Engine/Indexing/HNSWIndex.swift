@@ -323,15 +323,33 @@ final class HNSWIndex: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
+        return searchInternal(vector: vector, k: k)
+    }
+    
+    /// 批量搜索（避免锁竞争）
+    ///
+    /// - Parameters:
+    ///   - vectors: 查询向量数组
+    ///   - k: 每个查询返回数量
+    /// - Returns: 搜索结果数组的数组
+    nonisolated func batchSearch(vectors: [[Float]], k: Int) -> [[SearchResult]] {
+        lock.lock()
+        defer { lock.unlock() }
+        
+        guard entryPoint != nil else { return Array(repeating: [], count: vectors.count) }
+        
+        return vectors.map { vector in
+            searchInternal(vector: vector, k: k)
+        }
+    }
+    
+    /// 内部搜索实现（需在锁保护下调用）
+    private func searchInternal(vector: [Float], k: Int) -> [SearchResult] {
         guard let entry = entryPoint else { return [] }
         guard vector.count == self.config.dimension else {
-            Logger.index.warning("HNSW: 查询向量维度不匹配, expected=\(self.config.dimension), actual=\(vector.count)")
             return []
         }
-        guard let entryNode = nodes[entry] else {
-            Logger.index.warning("HNSW: 入口节点 \(entry) 不存在，返回空结果")
-            return []
-        }
+        guard let entryNode = nodes[entry] else { return [] }
 
         var currentNode = entry
         var currentDist = config.distanceMetric.distance(vector, entryNode.vector)
@@ -356,7 +374,7 @@ final class HNSWIndex: @unchecked Sendable {
 
         // 在第 0 层搜索
         let ef = max(config.efSearch, k)
-        let candidates = searchLayerInternal(vector: vector, entry: currentNode, ef: ef, layer: 0)
+        let candidates = searchLayerInternalLocked(vector: vector, entry: currentNode, ef: ef, layer: 0)
 
         // 返回 Top-K
         return candidates.prefix(k).map { (nodeId, dist) in

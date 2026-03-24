@@ -163,15 +163,8 @@ actor HNSWVectorStore: VectorStore {
             throw PSError.invalidInput("topK 必须大于 0")
         }
         
-        let startedAt = ContinuousClock.now
-        
         // HNSW 搜索
         let results = index.search(vector: queryEmbedding, k: topK)
-        
-        let duration = startedAt.duration(to: .now)
-        Logger.index.debug(
-            "HNSW 检索完成，索引大小: \(self.index.count)，返回数: \(results.count)，耗时: \(duration.components.seconds)s"
-        )
         
         // 转换结果格式
         guard let snapshot = currentSnapshot else {
@@ -189,6 +182,43 @@ actor HNSWVectorStore: VectorStore {
                 assetFingerprint: entry.assetFingerprint,
                 score: similarity
             )
+        }
+    }
+    
+    /// 批量搜索（避免锁竞争，性能更优）
+    func batchSearch(queryEmbeddings: [[Float]], topK: Int) async throws -> [[VectorSearchResult]] {
+        guard !queryEmbeddings.isEmpty else {
+            return []
+        }
+        guard topK > 0 else {
+            throw PSError.invalidInput("topK 必须大于 0")
+        }
+        
+        let startedAt = ContinuousClock.now
+        
+        // 一次性批量搜索
+        let allResults = index.batchSearch(vectors: queryEmbeddings, k: topK)
+        
+        let duration = startedAt.duration(to: .now)
+        Logger.index.info("HNSW 批量检索完成: \(queryEmbeddings.count) 个查询，耗时: \(duration.components.seconds)s")
+        
+        // 转换结果格式
+        guard let snapshot = currentSnapshot else {
+            return Array(repeating: [], count: queryEmbeddings.count)
+        }
+        
+        return allResults.map { results in
+            results.compactMap { result -> VectorSearchResult? in
+                guard let entry = snapshot.entries.first(where: { $0.assetLocalIdentifier == result.externalId }) else {
+                    return nil
+                }
+                let similarity = 1.0 - result.distance
+                return VectorSearchResult(
+                    assetLocalIdentifier: entry.assetLocalIdentifier,
+                    assetFingerprint: entry.assetFingerprint,
+                    score: similarity
+                )
+            }
         }
     }
     
