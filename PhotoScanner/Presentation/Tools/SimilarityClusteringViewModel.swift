@@ -292,10 +292,11 @@ final class SimilarityClusteringViewModel {
         return nil
     }
     
-    // MARK: - DBSCAN 算法（HNSW 加速版本）
+    // MARK: - DBSCAN 算法（预计算邻居表优化版）
     
-    /// 使用全局 HNSW 索引的 DBSCAN 聚类
-    /// 直接复用已构建的 vectorStore 索引，避免重复构建
+    /// 使用预计算邻居表的 DBSCAN 聚类
+    /// 时间复杂度：O(n) 次搜索 + O(n) 次聚类遍历 = O(n)
+    /// 空间复杂度：O(n * avgNeighbors)
     private func dbscanClusterWithGlobalHNSW(
         entries: [IndexEntry],
         snapshot: IndexSnapshot,
@@ -313,8 +314,22 @@ final class SimilarityClusteringViewModel {
             idToIndex[entry.assetLocalIdentifier] = i
         }
         
-        // 性能统计
-        var searchCount = 0
+        // ====== 阶段 1: 并行预计算所有邻居表 ======
+        state = .loading(progress: "预计算邻居关系...")
+        let precomputeStart = ContinuousClock.now
+        
+        let neighborTable = try await precomputeNeighborTable(
+            entries: entries,
+            idToIndex: idToIndex,
+            threshold: threshold
+        )
+        
+        let precomputeTime = precomputeStart.duration(to: .now)
+        Logger.ui.info("[聚类统计] 预计算完成: \(precomputeTime.components.seconds)s, 邻居表大小: \(neighborTable.count)")
+        
+        // ====== 阶段 2: DBSCAN 聚类（纯内存操作，无需搜索） ======
+        state = .loading(progress: "执行聚类...")
+        let clusterStart = ContinuousClock.now
         
         // 进度跟踪
         var lastProgressUpdate = ContinuousClock.now
@@ -338,13 +353,8 @@ final class SimilarityClusteringViewModel {
                 lastProgressUpdate = now
             }
             
-            // 使用全局 vectorStore 查找邻居
-            searchCount += 1
-            let neighbors = try await findNeighborsGlobal(
-                entry: entries[i],
-                idToIndex: idToIndex,
-                threshold: threshold
-            )
+            // 直接从预计算表获取邻居（O(1) 查找）
+            let neighbors = neighborTable[i]
             
             // 核心点判定
             if neighbors.count < minPoints {
@@ -375,13 +385,8 @@ final class SimilarityClusteringViewModel {
                 
                 labels[j] = clusterId
                 
-                // 查找邻居的邻居
-                searchCount += 1
-                let jNeighbors = try await findNeighborsGlobal(
-                    entry: entries[j],
-                    idToIndex: idToIndex,
-                    threshold: threshold
-                )
+                // 直接从预计算表获取邻居（O(1) 查找）
+                let jNeighbors = neighborTable[j]
                 
                 if jNeighbors.count >= minPoints {
                     seedSet.formUnion(jNeighbors)
@@ -389,8 +394,8 @@ final class SimilarityClusteringViewModel {
             }
         }
         
-        // 打印搜索统计
-        Logger.ui.info("[聚类统计] 搜索次数: \(searchCount), 数据量: \(n)")
+        let clusterTime = clusterStart.duration(to: .now)
+        Logger.ui.info("[聚类统计] 聚类完成: \(clusterTime.components.seconds)s")
         
         // 构建聚类结果
         var clusterMap: [Int: [IndexEntry]] = [:]
@@ -419,31 +424,51 @@ final class SimilarityClusteringViewModel {
         return clusters.sorted { $0.assetIds.count > $1.assetIds.count }
     }
     
-    /// 使用全局 vectorStore 查找邻居
-    private func findNeighborsGlobal(
-        entry: IndexEntry,
+    /// 并行预计算所有点的邻居表
+    /// - Returns: 索引 -> 邻居索引数组
+    private func precomputeNeighborTable(
+        entries: [IndexEntry],
         idToIndex: [String: Int],
         threshold: Float
-    ) async throws -> [Int] {
-        // 使用合理的 k 值（最多 100 个候选）
-        let k = min(100, idToIndex.count)
+    ) async throws -> [[Int]] {
+        let n = entries.count
+        let k = min(100, n)  // 每个 point 搜索 top-K
         
-        let results = try await vectorStore.search(queryEmbedding: entry.embedding, topK: k)
-        
-        // 过滤出相似度大于阈值的邻居
-        var neighbors: [Int] = []
-        neighbors.reserveCapacity(min(k, 20))
-        
-        for result in results {
-            if result.score >= threshold {
-                if let index = idToIndex[result.assetLocalIdentifier],
-                   result.assetLocalIdentifier != entry.assetLocalIdentifier {
-                    neighbors.append(index)
+        // 并行搜索所有点
+        let results = try await withThrowingTaskGroup(of: (Int, [Int]).self) { group in
+            for i in 0..<n {
+                group.addTask {
+                    let searchResults = try await self.vectorStore.search(
+                        queryEmbedding: entries[i].embedding,
+                        topK: k
+                    )
+                    
+                    // 过滤出邻居索引
+                    var neighbors: [Int] = []
+                    neighbors.reserveCapacity(min(k, 20))
+                    
+                    for result in searchResults {
+                        if result.score >= threshold {
+                            if let index = idToIndex[result.assetLocalIdentifier],
+                               result.assetLocalIdentifier != entries[i].assetLocalIdentifier {
+                                neighbors.append(index)
+                            }
+                        }
+                    }
+                    
+                    return (i, neighbors)
                 }
             }
+            
+            // 收集结果
+            var table: [[Int]] = Array(repeating: [], count: n)
+            for try await (index, neighbors) in group {
+                table[index] = neighbors
+            }
+            return table
         }
         
-        return neighbors
+        return results
     }
     
     /// 加载缩略图
