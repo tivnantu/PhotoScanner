@@ -10,14 +10,22 @@
 import Foundation
 import OSLog
 import CryptoKit
+import os.lock
 
 // MARK: - EmbeddingService
 
-actor EmbeddingService {
+/// Embedding 服务 - 支持并发推理
+///
+/// ## 并发安全性
+/// - embedImage/embedText 方法可并发调用
+/// - 状态管理使用 OSAllocatedUnfairLock 保护
+/// - 缓存访问通过 actor 隔离
+///
+final class EmbeddingService: @unchecked Sendable {
 
     // MARK: - 内部状态
 
-    private enum ServiceState {
+    private enum ServiceState: Sendable {
         case idle
         case loading(Task<Void, Error>)
         case ready
@@ -27,22 +35,23 @@ actor EmbeddingService {
     // MARK: - 依赖
 
     private let plugin: ModelPlugin
-    
-    /// 图像向量缓存（避免重复计算）
+
+    /// 图像向量缓存（避免重复计算）- actor 隔离
     private let imageCache: EmbeddingCache
-    
-    /// 文本向量缓存（避免重复计算）
+
+    /// 文本向量缓存（避免重复计算）- actor 隔离
     private let textCache: EmbeddingCache
 
-    // MARK: - 状态
+    // MARK: - 状态（锁保护）
 
-    private var state: ServiceState = .idle
+    private let lock = OSAllocatedUnfairLock()
+    private var _state: ServiceState = .idle
 
     var isReady: Bool {
-        if case .ready = state {
-            return true
+        lock.withLock {
+            if case .ready = _state { return true }
+            return false
         }
-        return false
     }
 
     var modelDescriptor: ModelDescriptor {
@@ -61,7 +70,9 @@ actor EmbeddingService {
 
     /// 初始化服务：加载底层模型
     func initialize() async throws {
-        switch state {
+        let currentState = lock.withLock { _state }
+
+        switch currentState {
         case .ready:
             return
         case .loading(let task):
@@ -73,15 +84,15 @@ actor EmbeddingService {
             let task = Task {
                 try await plugin.load()
             }
-            state = .loading(task)
+            lock.withLock { _state = .loading(task) }
 
             do {
                 try await task.value
-                state = .ready
+                lock.withLock { _state = .ready }
                 Logger.model.info("EmbeddingService 就绪 (\(modelName))")
             } catch {
                 let normalizedError = Self.normalize(error, fallback: "EmbeddingService 初始化失败")
-                state = .failed(normalizedError)
+                lock.withLock { _state = .failed(normalizedError) }
                 Logger.model.error("EmbeddingService 初始化失败 (\(modelName)) — \(normalizedError.localizedDescription)")
                 throw normalizedError
             }
@@ -92,90 +103,90 @@ actor EmbeddingService {
     func shutdown() async {
         let modelName = plugin.descriptor.displayName
 
-        if case .loading(let task) = state {
+        if case .loading(let task) = lock.withLock({ _state }) {
             _ = try? await task.value
         }
 
         await plugin.unload()
-        state = .idle
+        lock.withLock { _state = .idle }
         Logger.model.info("EmbeddingService 已关闭 (\(modelName))")
     }
 
-    // MARK: - 编码
+    // MARK: - 编码（并发安全）
 
-    /// 将图像编码为 embedding 向量
+    /// 将图像编码为 embedding 向量 - 可并发调用
     ///
     /// - Parameter imageData: 原始图像数据（JPEG/PNG 等）
     /// - Returns: 归一化后的 embedding 向量
-    func embedImage(_ imageData: Data) async throws -> [Float] {
+    nonisolated func embedImage(_ imageData: Data) async throws -> [Float] {
         try ensureReady()
         guard !imageData.isEmpty else {
             throw PSError.invalidInput("图像数据不能为空")
         }
-        
+
         // 缓存键：使用 SHA256 哈希
         let cacheKey = Self.cacheKey(for: imageData)
-        
-        // 尝试从缓存获取
+
+        // 尝试从缓存获取（actor 访问）
         if let cached = await imageCache.get(for: cacheKey) {
             Logger.model.debug("图像 embedding 缓存命中: \(cacheKey.prefix(8))")
             return cached.values
         }
 
-        // 计算并缓存
+        // 并发推理（plugin.encodeImage 是线程安全的）
         let raw = try await plugin.encodeImage(imageData)
         let validated = try validate(vector: raw, source: "图像 embedding")
         let normalized = try normalize(validated, source: "图像 embedding")
-        
+
         // 写入缓存
         let embedding = Embedding(values: normalized)
         await imageCache.set(embedding, for: cacheKey)
         Logger.model.debug("图像 embedding 已缓存: \(cacheKey.prefix(8))")
-        
+
         return normalized
     }
 
-    /// 将文本编码为 embedding 向量
+    /// 将文本编码为 embedding 向量 - 可并发调用
     ///
     /// - Parameter text: 原始文本
     /// - Returns: 归一化后的 embedding 向量
-    func embedText(_ text: String) async throws -> [Float] {
+    nonisolated func embedText(_ text: String) async throws -> [Float] {
         try ensureReady()
 
         let sanitizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sanitizedText.isEmpty else {
             throw PSError.invalidInput("文本不能为空")
         }
-        
+
         // 缓存键：使用 SHA256 哈希
         let cacheKey = Self.cacheKey(for: sanitizedText)
-        
-        // 尝试从缓存获取
+
+        // 尝试从缓存获取（actor 访问）
         if let cached = await textCache.get(for: cacheKey) {
             Logger.model.debug("文本 embedding 缓存命中: \(cacheKey.prefix(8))")
             return cached.values
         }
 
-        // 计算并缓存
+        // 并发推理（plugin.encodeText 是线程安全的）
         let raw = try await plugin.encodeText(sanitizedText)
         let validated = try validate(vector: raw, source: "文本 embedding")
         let normalized = try normalize(validated, source: "文本 embedding")
-        
+
         // 写入缓存
         let embedding = Embedding(values: normalized)
         await textCache.set(embedding, for: cacheKey)
         Logger.model.debug("文本 embedding 已缓存: \(cacheKey.prefix(8))")
-        
+
         return normalized
     }
-    
+
     /// 清除所有缓存
     func clearCache() async {
         await imageCache.clearAll()
         await textCache.clearAll()
         Logger.model.info("EmbeddingService 缓存已清除")
     }
-    
+
     /// 获取缓存统计信息
     func cacheStats() async -> (imageCount: Int, textCount: Int) {
         let imageCount = await imageCache.memoryCount
@@ -190,15 +201,16 @@ actor EmbeddingService {
         let hash = SHA256.hash(data: data)
         return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
-    
+
     private nonisolated static func cacheKey(for text: String) -> String {
         let hash = SHA256.hash(data: text.data(using: .utf8) ?? Data())
         return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
 
     /// 检查服务是否就绪
-    private func ensureReady() throws {
-        switch state {
+    private nonisolated func ensureReady() throws {
+        let currentState = lock.withLock { _state }
+        switch currentState {
         case .ready:
             return
         case .idle:
@@ -219,7 +231,7 @@ actor EmbeddingService {
         }
     }
 
-    private func validate(vector: [Float], source: String) throws -> [Float] {
+    private nonisolated func validate(vector: [Float], source: String) throws -> [Float] {
         guard !vector.isEmpty else {
             throw PSError.invalidModelOutput("\(source) 为空")
         }
@@ -235,7 +247,7 @@ actor EmbeddingService {
     }
 
     /// L2 归一化
-    private func normalize(_ vector: [Float], source: String) throws -> [Float] {
+    private nonisolated func normalize(_ vector: [Float], source: String) throws -> [Float] {
         let result = SimdUtils.normalize(vector)
 
         // 验证归一化结果
@@ -246,7 +258,7 @@ actor EmbeddingService {
         return result
     }
 
-    private static func normalize(_ error: Error, fallback: String) -> PSError {
+    private nonisolated static func normalize(_ error: Error, fallback: String) -> PSError {
         if let psError = error as? PSError {
             return psError
         }

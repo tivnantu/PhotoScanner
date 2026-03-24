@@ -11,12 +11,21 @@
 import Foundation
 import OSLog
 import OnnxRuntimeBindings
+import os.lock
 
 // MARK: - ChineseCLIPPlugin
 
-actor ChineseCLIPPlugin: ModelPlugin {
+/// Chinese-CLIP ONNX Runtime 实现
+///
+/// ## 并发安全性
+/// - ORTSession.Run() 是线程安全的（ONNX Runtime 官方确认）
+/// - encodeImage/encodeText 方法可并发调用
+/// - 使用 OSAllocatedUnfairLock 保护可变状态（loadTask, runtime）
+///
+/// 参考: https://github.com/microsoft/onnxruntime/issues/114
+final class ChineseCLIPPlugin: ModelPlugin, @unchecked Sendable {
 
-    private struct RuntimeContext {
+    private struct RuntimeContext: Sendable {
         let env: ORTEnv
         let imageSession: ORTSession
         let textSession: ORTSession
@@ -25,7 +34,7 @@ actor ChineseCLIPPlugin: ModelPlugin {
 
     // MARK: - 模型描述
 
-    nonisolated let descriptor = ModelDescriptor(
+    let descriptor = ModelDescriptor(
         id: "chinese-clip-vit-b-16",
         version: "1.0.0",
         embeddingDimension: 512,
@@ -34,10 +43,11 @@ actor ChineseCLIPPlugin: ModelPlugin {
         displayName: "Chinese-CLIP ViT-B/16"
     )
 
-    // MARK: - 状态
+    // MARK: - 状态（锁保护）
 
-    private var runtime: RuntimeContext?
-    private var loadTask: Task<RuntimeContext, Error>?
+    private let lock = OSAllocatedUnfairLock()
+    private var _runtime: RuntimeContext?
+    private var _loadTask: Task<RuntimeContext, Error>?
 
     // MARK: - 模型常量（与 Python 导出严格一致）
 
@@ -64,13 +74,15 @@ actor ChineseCLIPPlugin: ModelPlugin {
     // MARK: - 生命周期
 
     func load() async throws {
-        if runtime != nil {
+        // 检查是否已加载
+        if lock.withLock({ _runtime != nil }) {
             return
         }
 
-        if let loadTask {
-            let loadedRuntime = try await loadTask.value
-            runtime = loadedRuntime
+        // 检查是否有正在进行的加载任务
+        if let existingTask = lock.withLock({ _loadTask }) {
+            let loadedRuntime = try await existingTask.value
+            lock.withLock { _runtime = loadedRuntime }
             return
         }
 
@@ -81,21 +93,27 @@ actor ChineseCLIPPlugin: ModelPlugin {
         let task = Task<RuntimeContext, Error> {
             try Self.createRuntimeContext(contextLength: contextLength)
         }
-        loadTask = task
+        lock.withLock { _loadTask = task }
 
         do {
             let loadedRuntime = try await task.value
-            runtime = loadedRuntime
-            loadTask = nil
+            lock.withLock {
+                _runtime = loadedRuntime
+                _loadTask = nil
+            }
             Logger.model.info("\(name) 加载完成")
         } catch let error as PSError {
-            runtime = nil
-            loadTask = nil
+            lock.withLock {
+                _runtime = nil
+                _loadTask = nil
+            }
             Logger.model.error("\(name) 加载失败 — \(error.localizedDescription)")
             throw error
         } catch {
-            runtime = nil
-            loadTask = nil
+            lock.withLock {
+                _runtime = nil
+                _loadTask = nil
+            }
             let normalizedError = PSError.modelLoadFailed("\(name) 初始化失败：\(error.localizedDescription)")
             Logger.model.error("\(name) 加载失败 — \(normalizedError.localizedDescription)")
             throw normalizedError
@@ -103,19 +121,31 @@ actor ChineseCLIPPlugin: ModelPlugin {
     }
 
     func unload() async {
-        runtime = nil
-        loadTask = nil
+        lock.withLock {
+            _runtime = nil
+            _loadTask = nil
+        }
         Logger.model.info("\(self.descriptor.displayName) 已卸载")
     }
 
-    // MARK: - 编码
+    // MARK: - 编码（并发安全）
 
-    func encodeImage(_ imageData: Data) async throws -> [Float] {
+    /// 图像编码 - 可并发调用
+    ///
+    /// ORTSession.Run() 是线程安全的，支持并发推理。
+    /// 参考: https://github.com/microsoft/onnxruntime/issues/114
+    nonisolated func encodeImage(_ imageData: Data) async throws -> [Float] {
         guard !imageData.isEmpty else {
             throw PSError.invalidInput("图像数据不能为空")
         }
 
-        let runtime = try requireRuntime()
+        // 获取 runtime（只读访问，线程安全）
+        guard let runtime = lock.withLock({ _runtime }) else {
+            throw PSError.serviceNotReady(
+                service: descriptor.displayName,
+                reason: "模型尚未加载"
+            )
+        }
 
         do {
             let imageTensor = try ChineseCLIPImagePreprocessor.preprocess(imageData: imageData)
@@ -125,6 +155,7 @@ actor ChineseCLIPPlugin: ModelPlugin {
                 shape: [1, 3, descriptor.imageSize, descriptor.imageSize]
             )
 
+            // ORTSession.Run() 是线程安全的，可并发调用
             let outputs = try runtime.imageSession.run(
                 withInputs: [OnnxIO.imageInput: inputValue],
                 outputNames: [OnnxIO.imageOutput],
@@ -146,13 +177,20 @@ actor ChineseCLIPPlugin: ModelPlugin {
         }
     }
 
-    func encodeText(_ text: String) async throws -> [Float] {
+    /// 文本编码 - 可并发调用
+    nonisolated func encodeText(_ text: String) async throws -> [Float] {
         let sanitizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sanitizedText.isEmpty else {
             throw PSError.invalidInput("文本不能为空")
         }
 
-        let runtime = try requireRuntime()
+        // 获取 runtime（只读访问，线程安全）
+        guard let runtime = lock.withLock({ _runtime }) else {
+            throw PSError.serviceNotReady(
+                service: descriptor.displayName,
+                reason: "模型尚未加载"
+            )
+        }
 
         do {
             let tokenIDs = runtime.tokenizer.encodeToInt64(sanitizedText)
@@ -162,6 +200,7 @@ actor ChineseCLIPPlugin: ModelPlugin {
                 shape: [1, descriptor.contextLength]
             )
 
+            // ORTSession.Run() 是线程安全的，可并发调用
             let outputs = try runtime.textSession.run(
                 withInputs: [OnnxIO.textInput: inputValue],
                 outputNames: [OnnxIO.textOutput],
@@ -183,29 +222,9 @@ actor ChineseCLIPPlugin: ModelPlugin {
         }
     }
 
-    // MARK: - 内部依赖检查
+    // MARK: - ORT helper (nonisolated, 线程安全)
 
-    private func requireRuntime() throws -> RuntimeContext {
-        if let runtime {
-            return runtime
-        }
-
-        if loadTask != nil {
-            throw PSError.serviceNotReady(
-                service: descriptor.displayName,
-                reason: "模型仍在加载中，请稍后重试"
-            )
-        }
-
-        throw PSError.serviceNotReady(
-            service: descriptor.displayName,
-            reason: "模型尚未加载"
-        )
-    }
-
-    // MARK: - ORT helper
-
-    nonisolated private static func createRuntimeContext(contextLength: Int) throws -> RuntimeContext {
+    private nonisolated static func createRuntimeContext(contextLength: Int) throws -> RuntimeContext {
         let imagePath = try BundleResource.imageEncoderPath()
         let textPath = try BundleResource.textEncoderPath()
         let vocabPath = try BundleResource.vocabPath()
@@ -224,7 +243,7 @@ actor ChineseCLIPPlugin: ModelPlugin {
         )
     }
 
-    nonisolated private static func makeSessionOptions(logID: String) throws -> ORTSessionOptions {
+    private nonisolated static func makeSessionOptions(logID: String) throws -> ORTSessionOptions {
         let sessionOptions = try ORTSessionOptions()
         try sessionOptions.setLogSeverityLevel(.warning)
         try sessionOptions.setIntraOpNumThreads(0)
@@ -232,7 +251,7 @@ actor ChineseCLIPPlugin: ModelPlugin {
         return sessionOptions
     }
 
-    private func makeTensorValue<T>(
+    private nonisolated func makeTensorValue<T>(
         from values: [T],
         elementType: ORTTensorElementDataType,
         shape: [Int]
@@ -242,7 +261,7 @@ actor ChineseCLIPPlugin: ModelPlugin {
         return try ORTValue(tensorData: tensorData, elementType: elementType, shape: tensorShape)
     }
 
-    private func makeMutableData<T>(from values: [T]) -> NSMutableData {
+    private nonisolated func makeMutableData<T>(from values: [T]) -> NSMutableData {
         guard !values.isEmpty else { return NSMutableData() }
 
         return values.withUnsafeBufferPointer { buffer in
@@ -253,7 +272,7 @@ actor ChineseCLIPPlugin: ModelPlugin {
         }
     }
 
-    private func extractFloatVector(
+    private nonisolated func extractFloatVector(
         from outputs: [String: ORTValue],
         outputName: String,
         expectedLength: Int

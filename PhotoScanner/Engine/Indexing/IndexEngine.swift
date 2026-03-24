@@ -188,9 +188,8 @@ actor IndexEngine {
                 await progressHandler?(.building(progress: progress))
             }
 
-            // 并行预取图片数据，串行推理
-            // 预取批次大小：在推理一张图片时，并行获取下一批图片数据
-            let prefetchCount = 4
+            // 并行推理（embeddingService.embedImage 现在支持并发）
+            let maxConcurrency = 4
             var pendingAssets = sortedAssets.filter { entriesByID[$0.assetLocalIdentifier] == nil }
 
             while !pendingAssets.isEmpty {
@@ -210,40 +209,39 @@ actor IndexEngine {
                 // 热节流：过热时暂停，冷却后恢复
                 try await thermalThrottler.waitIfNeeded()
 
-                // 并行获取一批图片数据
-                let batch = Array(pendingAssets.prefix(prefetchCount))
-                pendingAssets = Array(pendingAssets.dropFirst(prefetchCount))
+                // 取一批待处理资产
+                let batchSize = min(maxConcurrency, pendingAssets.count)
+                let batch = Array(pendingAssets.prefix(batchSize))
+                pendingAssets = Array(pendingAssets.dropFirst(batchSize))
 
-                // 并行获取图片数据
-                var imageDataResults: [String: Result<Data, Error>] = [:]
-                await withTaskGroup(of: (String, Result<Data, Error>).self) { group in
+                // 并行推理
+                var results: [(asset: StoredIndexedAsset, result: Result<(Data, [Float]), Error>)] = []
+                results.reserveCapacity(batchSize)
+
+                await withTaskGroup(of: (StoredIndexedAsset, Result<(Data, [Float]), Error>).self) { group in
                     for asset in batch {
                         group.addTask {
                             do {
-                                let data = try await self.resolveImageData(for: asset)
-                                return (asset.assetLocalIdentifier, .success(data))
+                                // 并行获取图片数据
+                                let imageData = try await self.resolveImageData(for: asset)
+                                // 并行推理（embeddingService.embedImage 是线程安全的）
+                                let embedding = try await self.embeddingService.embedImage(imageData)
+                                return (asset, .success((imageData, embedding)))
                             } catch {
-                                return (asset.assetLocalIdentifier, .failure(error))
+                                return (asset, .failure(error))
                             }
                         }
                     }
-                    for await (id, result) in group {
-                        imageDataResults[id] = result
+
+                    for await result in group {
+                        results.append(result)
                     }
                 }
 
-                // 串行处理推理
-                for asset in batch {
-                    guard let result = imageDataResults[asset.assetLocalIdentifier] else { continue }
-
+                // 串行保存结果
+                for (asset, result) in results {
                     do {
-                        let imageData = try result.get()
-
-                        // 热节流：过热时暂停
-                        try await thermalThrottler.waitIfNeeded()
-
-                        // 串行推理（ONNX Runtime 不支持并发）
-                        let embedding = try await embeddingService.embedImage(imageData)
+                        let (_, embedding) = try result.get()
                         let entry = try IndexEntry(
                             assetLocalIdentifier: asset.assetLocalIdentifier,
                             assetFingerprint: asset.assetFingerprint,
@@ -269,9 +267,6 @@ actor IndexEngine {
                             await progressHandler?(.building(progress: progress))
                         }
 
-                        // 推理后让出 CPU
-                        await thermalThrottler.yieldBetweenInferences()
-
                     } catch {
                         consecutiveFailures += 1
                         skippedCount += 1
@@ -284,6 +279,9 @@ actor IndexEngine {
                         }
                     }
                 }
+
+                // 批次结束后让出 CPU
+                await thermalThrottler.yieldBetweenInferences()
             }
 
             let finalEntries = sortedAssets.compactMap { entriesByID[$0.assetLocalIdentifier] }
