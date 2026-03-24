@@ -696,13 +696,15 @@ class SettingsViewModel {
     }
     
     func resumeBuilding() {
+        Logger.app.info("resumeBuilding 被调用，当前状态: isBuilding=\(self.isBuilding), indexedCount=\(self.indexedCount)")
+
         // 如果已有任务在运行，先取消
         buildTask?.cancel()
-        
+
         // 创建新的构建任务
         buildTask = Task { [weak self] in
             guard let self = self else { return }
-            
+
             await MainActor.run {
                 self.isBuilding = true
                 self.canResumeBuilding = false
