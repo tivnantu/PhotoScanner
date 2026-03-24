@@ -241,40 +241,51 @@ actor IndexEngine {
                 let batch = Array(pendingAssets.prefix(batchSize))
                 pendingAssets = Array(pendingAssets.dropFirst(batchSize))
 
-                // 并行推理
+                // 并行推理 - 使用逐个获取结果的方式，及时响应取消
                 var results: [(asset: StoredIndexedAsset, result: Result<(Data, [Float]), Error>)] = []
-                results.reserveCapacity(batchSize)
-
-                await withTaskGroup(of: (StoredIndexedAsset, Result<(Data, [Float]), Error>).self) { group in
+                
+                await withThrowingTaskGroup(of: (StoredIndexedAsset, Result<(Data, [Float]), Error>).self) { group in
+                    // 添加所有任务
                     for asset in batch {
-                        // 检查取消状态，避免添加新任务
-                        if Task.isCancelled { return }
-
                         group.addTask {
-                            // 并行任务内部也检查取消
-                            if Task.isCancelled {
-                                return (asset, .failure(CancellationError()))
-                            }
                             do {
-                                // 并行获取图片数据
+                                // 获取图片数据
                                 let imageData = try await self.resolveImageData(for: asset)
-                                // 检查取消
+                                // 推理前检查取消
                                 if Task.isCancelled {
-                                    return (asset, .failure(CancellationError()))
+                                    throw CancellationError()
                                 }
-                                // 并行推理（embeddingService.embedImage 是线程安全的）
+                                // 推理
                                 let embedding = try await self.embeddingService.embedImage(imageData)
+                                // 推理后检查取消
+                                if Task.isCancelled {
+                                    throw CancellationError()
+                                }
                                 return (asset, .success((imageData, embedding)))
                             } catch {
                                 return (asset, .failure(error))
                             }
                         }
                     }
-
-                    for await result in group {
-                        results.append(result)
-                        // 收集结果时也检查取消
-                        if Task.isCancelled { return }
+                    
+                    // 逐个获取结果，及时响应取消
+                    while !group.isEmpty {
+                        if Task.isCancelled {
+                            group.cancelAll()
+                            break
+                        }
+                        
+                        do {
+                            let result = try await group.next()
+                            if let result = result {
+                                results.append(result)
+                            } else {
+                                break // 没有更多结果
+                            }
+                        } catch {
+                            // 任务出错，继续获取其他结果
+                            continue
+                        }
                     }
                 }
 
