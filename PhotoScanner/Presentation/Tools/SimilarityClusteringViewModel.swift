@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import Photos
+import OSLog
 
 // MARK: - 阈值预设
 
@@ -202,12 +203,16 @@ final class SimilarityClusteringViewModel {
     func performClustering() async {
         state = .loading(progress: "加载索引数据...")
         
+        let totalStartTime = ContinuousClock.now
+        
         do {
             // 1. 从 VectorStore 获取所有图片的 embedding
+            let loadStartTime = ContinuousClock.now
             guard let snapshot = try await vectorStore.loadSnapshot() else {
                 state = .error("索引为空，请先构建索引")
                 return
             }
+            let loadTime = loadStartTime.duration(to: .now)
             
             let entries = snapshot.entries
             guard !entries.isEmpty else {
@@ -222,19 +227,33 @@ final class SimilarityClusteringViewModel {
             let clusters: [PhotoCluster]
             
             // 统一使用 HNSW 加速（全局索引已构建好）
+            let clusterStartTime = ContinuousClock.now
             clusters = try await dbscanClusterWithGlobalHNSW(
                 entries: entries,
                 snapshot: snapshot,
                 threshold: threshold,
                 minPoints: minPoints
             )
+            let clusterTime = clusterStartTime.duration(to: .now)
             
             // 3. 加载聚类中心的缩略图
             state = .loading(progress: "加载缩略图...")
+            let thumbnailStartTime = ContinuousClock.now
             await loadThumbnails(for: clusters)
+            let thumbnailTime = thumbnailStartTime.duration(to: .now)
             
             // 4. 更新状态
             state = .loaded(clusters: clusters)
+            
+            // 打印性能统计
+            let totalTime = totalStartTime.duration(to: .now)
+            Logger.ui.info("""
+                [聚类统计] 总耗时: \(totalTime.components.seconds)s
+                  - 加载索引: \(loadTime.components.seconds)s
+                  - DBSCAN聚类: \(clusterTime.components.seconds)s
+                  - 加载缩略图: \(thumbnailTime.components.seconds)s
+                  - 聚类数: \(clusters.count), 总图片: \(clusters.reduce(0) { $0 + $1.assetIds.count })
+                """)
         } catch {
             if error is CancellationError {
                 state = .idle
@@ -294,6 +313,9 @@ final class SimilarityClusteringViewModel {
             idToIndex[entry.assetLocalIdentifier] = i
         }
         
+        // 性能统计
+        var searchCount = 0
+        
         // 进度跟踪
         var lastProgressUpdate = ContinuousClock.now
         let progressInterval = Duration.seconds(0.5)
@@ -317,6 +339,7 @@ final class SimilarityClusteringViewModel {
             }
             
             // 使用全局 vectorStore 查找邻居
+            searchCount += 1
             let neighbors = try await findNeighborsGlobal(
                 entry: entries[i],
                 idToIndex: idToIndex,
@@ -353,6 +376,7 @@ final class SimilarityClusteringViewModel {
                 labels[j] = clusterId
                 
                 // 查找邻居的邻居
+                searchCount += 1
                 let jNeighbors = try await findNeighborsGlobal(
                     entry: entries[j],
                     idToIndex: idToIndex,
@@ -364,6 +388,9 @@ final class SimilarityClusteringViewModel {
                 }
             }
         }
+        
+        // 打印搜索统计
+        Logger.ui.info("[聚类统计] 搜索次数: \(searchCount), 数据量: \(n)")
         
         // 构建聚类结果
         var clusterMap: [Int: [IndexEntry]] = [:]
