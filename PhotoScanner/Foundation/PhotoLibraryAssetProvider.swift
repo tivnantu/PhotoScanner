@@ -128,6 +128,7 @@ actor PhotoLibraryAssetProvider {
             options.resizeMode = .exact
 
             let hasResumed = OSAllocatedUnfairLock(initialState: false)
+            let identifier = asset.localIdentifier
 
             PHImageManager.default().requestImage(
                 for: asset,
@@ -139,6 +140,7 @@ actor PhotoLibraryAssetProvider {
                 let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
                 let isCancelled = (info?[PHImageCancelledKey] as? Bool) ?? false
                 let error = info?[PHImageErrorKey] as? Error
+                let isInCloud = (info?[PHImageResultIsInCloudKey] as? Bool) ?? false
 
                 // degraded 且无错误时继续等待
                 if isDegraded && error == nil && !isCancelled { return }
@@ -150,11 +152,16 @@ actor PhotoLibraryAssetProvider {
                     return true
                 }) else { return }
 
-                if isCancelled || error != nil {
+                if isCancelled {
+                    Logger.vision.warning("缩略图请求取消: \(String(identifier.prefix(24)))")
+                    continuation.resume(returning: nil)
+                } else if let error = error {
+                    Logger.vision.warning("缩略图请求错误: \(error.localizedDescription), iCloud: \(isInCloud)")
                     continuation.resume(returning: nil)
                 } else if let image = image {
                     continuation.resume(returning: image.jpegData(compressionQuality: 0.8))
                 } else {
+                    Logger.vision.warning("缩略图请求无结果: \(String(identifier.prefix(24))), iCloud: \(isInCloud)")
                     continuation.resume(returning: nil)
                 }
             }

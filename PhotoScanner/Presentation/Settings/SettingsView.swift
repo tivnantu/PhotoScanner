@@ -780,8 +780,8 @@ class SettingsViewModel {
             self.totalCount = maxIndexCount
         }
 
-        // 限制并发度（避免 PHImageManager 过载）
-        let maxConcurrent = 8
+        // 限制并发度（参考 V1 串行模式，避免 PHImageManager 过载）
+        let maxConcurrent = 4
         var inputs: [IndexedAssetInput] = []
         var failedCount = 0
 
