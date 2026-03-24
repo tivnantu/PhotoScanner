@@ -2,6 +2,7 @@ import Foundation
 import Photos
 import UIKit
 import OSLog
+import os.lock
 import MobileCoreServices
 
 // TODO: 架构合规 - Foundation 层禁止导入 UIKit/Photos，此文件应移至 Infrastructure/ 层
@@ -117,36 +118,45 @@ actor PhotoLibraryAssetProvider {
         )
     }
 
-    /// 请求缩略图数据（使用 PHImageManager，更可靠）
+    /// 请求缩略图数据（使用 PHImageManager，参考 V1 实现）
     private func requestThumbnailData(for asset: PHAsset) async -> Data? {
         await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
-            options.deliveryMode = .opportunistic
-            options.resizeMode = .fast
-            options.isNetworkAccessAllowed = true  // 允许从 iCloud 下载
             options.isSynchronous = false
+            options.deliveryMode = .highQualityFormat  // 索引构建需要高质量
+            options.isNetworkAccessAllowed = true      // 支持 iCloud 下载
+            options.resizeMode = .exact
+
+            let hasResumed = OSAllocatedUnfairLock(initialState: false)
 
             PHImageManager.default().requestImage(
                 for: asset,
-                targetSize: CGSize(width: 224, height: 224),  // 模型输入尺寸
+                targetSize: CGSize(width: 300, height: 300),  // V1 使用 300x300
                 contentMode: .aspectFill,
                 options: options
             ) { image, info in
+                // 跳过 degraded 图，等待高质量图
+                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
                 let isCancelled = (info?[PHImageCancelledKey] as? Bool) ?? false
-                let hasError = info?[PHImageErrorKey] != nil
+                let error = info?[PHImageErrorKey] as? Error
 
-                if isCancelled || hasError {
+                // degraded 且无错误时继续等待
+                if isDegraded && error == nil && !isCancelled { return }
+
+                // 防止 double-resume
+                guard hasResumed.withLock({ val in
+                    guard !val else { return false }
+                    val = true
+                    return true
+                }) else { return }
+
+                if isCancelled || error != nil {
                     continuation.resume(returning: nil)
-                    return
-                }
-
-                guard let image = image else {
+                } else if let image = image {
+                    continuation.resume(returning: image.jpegData(compressionQuality: 0.8))
+                } else {
                     continuation.resume(returning: nil)
-                    return
                 }
-
-                // 转换为 JPEG 数据
-                continuation.resume(returning: image.jpegData(compressionQuality: 0.8))
             }
         }
     }

@@ -241,27 +241,27 @@ private struct IndexStatusCard: View {
                     .foregroundStyle(.blue)
                     .symbolEffect(.rotate, isActive: true)
                     .frame(width: 28, height: 28)
-                
+
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("正在分析照片")
+                    Text("正在获取缩略图")
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    
+
                     if viewModel.totalCount > 0 {
-                        Text("\(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
+                        Text("已获取 \(viewModel.successCount.formatted()) 张 · 处理中 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .contentTransition(.numericText())
                     } else {
-                        Text("正在获取照片信息...")
+                        Text("正在初始化...")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
                 }
-                
+
                 Spacer()
             }
-            
+
             if viewModel.totalCount > 0 {
                 ProgressView(value: Double(viewModel.completedCount), total: Double(max(viewModel.totalCount, 1)))
                     .tint(.blue)
@@ -581,6 +581,7 @@ class SettingsViewModel {
     var buildProgress: Double = 0
     var completedCount: Int = 0
     var totalCount: Int = 0
+    var successCount: Int = 0  // 成功获取缩略图数量
     
     var totalLibraryCount: Int = 0
     var indexedCount: Int = 0
@@ -828,6 +829,7 @@ class SettingsViewModel {
                     let completed = nextIndex - active
                     await MainActor.run {
                         self.completedCount = completed
+                        self.successCount = inputs.count
                     }
 
                     // 每 100 张打印一次进度
