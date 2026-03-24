@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="docs/res/icon.png" alt="PhotoScanner Icon" width="120" height="120">
+  <img src="docs/res/icon.png" alt="PhotoScanner Icon" width="32" height="32">
   <h1>PhotoScanner</h1>
 </div>
 
 基于 Chinese-CLIP 的本地照片智能检索 iOS App。在设备端运行图文双塔模型，支持用中文描述搜索手机相册中的照片。
 
 <p align="center">
-  <img src="docs/res/demo.png" alt="PhotoScanner Demo" width="300">
+  <img src="docs/res/demo.png" alt="PhotoScanner Demo" width="600">
 </p>
 
 ## 特性
