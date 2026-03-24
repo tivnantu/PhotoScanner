@@ -5,10 +5,10 @@ import PhotosUI
 struct SearchHomeView: View {
     @Environment(\.services) private var services
     @State private var searchText: String = ""
-    @State private var selectedPickerItem: PhotosPickerItem?
+    @State private var showPHPicker = false
     @State private var searchHistory: [SearchHistoryItem] = []
     @State private var showClearHistoryAlert: Bool = false
-    
+
     // 搜索状态
     @State private var isSearching: Bool = false
     @State private var searchResults: [TextSearchResultItem] = []
@@ -43,16 +43,21 @@ struct SearchHomeView: View {
                 Spacer()
             }
             .ignoresSafeArea(.keyboard)
+            .sheet(isPresented: $showPHPicker) {
+                PHPickerWrapper(
+                    isPresented: $showPHPicker,
+                    selectionLimit: 1
+                ) { items in
+                    if let item = items.first {
+                        Task {
+                            await performImageSearch(item)
+                        }
+                    }
+                }
+            }
             .onChange(of: searchText) { oldValue, newValue in
                 if newValue.isEmpty && searchMode == .text {
                     resetSearch()
-                }
-            }
-            .onChange(of: selectedPickerItem) { _, newItem in
-                if let newItem = newItem {
-                    Task {
-                        await performImageSearch(newItem)
-                    }
                 }
             }
             .task {
@@ -150,7 +155,9 @@ struct SearchHomeView: View {
             .padding(.vertical, 10)
             
             // 图片搜索按钮
-            PhotosPicker(selection: $selectedPickerItem, matching: .images) {
+            Button {
+                showPHPicker = true
+            } label: {
                 Image(systemName: "photo")
                     .font(.system(size: 20))
                     .foregroundStyle(Color.accentColor)
@@ -502,22 +509,18 @@ struct SearchHomeView: View {
         }
     }
     
-    private func performImageSearch(_ item: PhotosPickerItem) async {
+    private func performImageSearch(_ item: PHPickerResultItem) async {
         withAnimation(.easeInOut(duration: 0.3)) {
             searchMode = .image
             isSearching = true
             searchFailure = nil
         }
-        
+
         do {
-            guard let data = try await item.loadTransferable(type: Data.self) else {
-                throw ImageSearchError.failedToLoadImage
-            }
-            
             let viewModel = ImageSearchViewModel(services: services)
             await viewModel.initialize()
-            try await viewModel.searchWithImageData(data)
-            
+            try await viewModel.searchWithImageData(item.imageData)
+
             if case .displaying(let results) = viewModel.state {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     imageSearchResults = results
@@ -536,14 +539,13 @@ struct SearchHomeView: View {
             }
         }
     }
-    
+
     private func resetSearch() {
         searchText = ""
         searchResults = []
         imageSearchResults = []
         searchFailure = nil
         searchMode = .none
-        selectedPickerItem = nil
     }
 }
 

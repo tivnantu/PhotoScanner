@@ -7,11 +7,11 @@ import OSLog
 struct TextSearchView: View {
     @Environment(\.services) private var services
     @State private var viewModel: TextSearchViewModel?
-    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var showPHPicker = false
     @FocusState private var isTextFieldFocused: Bool
-    
+
     var initialQuery: String = ""
-    
+
     var body: some View {
         NavigationStack {
             Group {
@@ -29,12 +29,22 @@ struct TextSearchView: View {
                 }
             }
             .navigationTitle("文搜图")
+            .sheet(isPresented: $showPHPicker) {
+                PHPickerWrapper(
+                    isPresented: $showPHPicker,
+                    selectionLimit: 0
+                ) { items in
+                    Task {
+                        await importPHPickerItems(items, into: viewModel)
+                    }
+                }
+            }
             .task {
                 guard viewModel == nil else { return }
                 let nextViewModel = TextSearchViewModel(services: services)
                 viewModel = nextViewModel
                 await nextViewModel.initialize()
-                
+
                 // 设置初始查询
                 if !initialQuery.isEmpty {
                     nextViewModel.queryText = initialQuery
@@ -83,22 +93,12 @@ struct TextSearchView: View {
     @ViewBuilder
     private func importSection(_ viewModel: TextSearchViewModel) -> some View {
         Section("图片管理") {
-            PhotosPicker(
-                selection: $pickerItems,
-                maxSelectionCount: nil,
-                matching: .images,
-                preferredItemEncoding: .automatic,
-                photoLibrary: .shared()
-            ) {
+            Button {
+                showPHPicker = true
+            } label: {
                 Label("选择图片并重建索引", systemImage: "photo.on.rectangle.angled")
             }
             .disabled(viewModel.isBuilding)
-            .onChange(of: pickerItems) { _, newItems in
-                Task {
-                    await importSelectedItems(newItems, into: viewModel)
-                    pickerItems = []
-                }
-            }
 
             if viewModel.canRebuildFromImportedAssets {
                 Button {
@@ -292,48 +292,32 @@ struct TextSearchView: View {
         }
     }
 
-    private func importSelectedItems(
-        _ items: [PhotosPickerItem],
-        into viewModel: TextSearchViewModel
+    private func importPHPickerItems(
+        _ items: [PHPickerResultItem],
+        into viewModel: TextSearchViewModel?
     ) async {
-        guard !items.isEmpty else { return }
+        guard !items.isEmpty, let viewModel else { return }
 
-        do {
-            var inputs: [IndexedAssetInput] = []
-            inputs.reserveCapacity(items.count)
+        var inputs: [IndexedAssetInput] = []
+        inputs.reserveCapacity(items.count)
 
-            for (index, item) in items.enumerated() {
-                let normalizedIdentifier = item.itemIdentifier?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let shortIdentifier = shortIdentifier(normalizedIdentifier)
-
-                if let data = try await item.loadTransferable(type: Data.self) {
-                    inputs.append(
-                        try IndexedAssetInput(
-                            assetLocalIdentifier: normalizedIdentifier,
-                            imageData: data
-                        )
-                    )
-                } else {
-                    Logger.ui.error("选图[\(index + 1)/\(items.count)] 数据读取失败，itemIdentifier: \(shortIdentifier)")
-                }
+        for (index, item) in items.enumerated() {
+            do {
+                inputs.append(try IndexedAssetInput(
+                    photoLibraryAssetIdentifier: item.assetIdentifier,
+                    imageData: item.imageData
+                ))
+            } catch {
+                Logger.ui.error("PHPicker[\(index + 1)/\(items.count)] 创建输入失败: \(error.localizedDescription)")
             }
-
-            if inputs.isEmpty {
-                await viewModel.presentImportFailure(PSError.invalidInput("未读取到可用图片，请重新选择"))
-                return
-            }
-
-            await viewModel.handlePickedAssets(inputs)
-        } catch {
-            Logger.ui.error("文搜图导入失败: \(error.localizedDescription)")
-            await viewModel.presentImportFailure(error)
         }
-    }
 
-    private func shortIdentifier(_ identifier: String?) -> String {
-        guard let identifier, !identifier.isEmpty else { return "nil" }
-        return String(identifier.prefix(24))
+        if inputs.isEmpty {
+            await viewModel.presentImportFailure(PSError.invalidInput("未读取到可用图片，请重新选择"))
+            return
+        }
+
+        await viewModel.handlePickedAssets(inputs)
     }
 
     private func statusTint(for buildState: IndexBuildState) -> Color {

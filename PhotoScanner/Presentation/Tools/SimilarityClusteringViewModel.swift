@@ -15,41 +15,39 @@ enum ClusteringPreset: String, CaseIterable, Identifiable {
     case lenient = "宽容"
     case balanced = "平衡"
     case strict = "严格"
-    
+
     var id: String { rawValue }
-    
+
+    /// 相似度阈值
     var threshold: Float {
         switch self {
-        case .lenient: return 0.70
+        case .lenient: return 0.75
         case .balanced: return 0.80
-        case .strict: return 0.90
+        case .strict: return 0.85
         }
     }
-    
+
+    /// DBSCAN 最小邻居数（minPoints）
+    var minPoints: Int {
+        switch self {
+        case .lenient: return 2   // 低阈值，容易成簇
+        case .balanced: return 3  // 平衡
+        case .strict: return 4    // 高阈值，需要更多邻居
+        }
+    }
+
     var title: String { rawValue }
-    
+
     var summary: String {
         switch self {
-        case .lenient: return "更多相似图片被归为一组"
-        case .balanced: return "推荐设置，平衡精度与召回"
-        case .strict: return "仅非常相似的图片才会分组"
+        case .lenient: return "阈值\(Int(threshold * 100))%，邻居\(minPoints)，更多分组"
+        case .balanced: return "阈值\(Int(threshold * 100))%，邻居\(minPoints)，推荐设置"
+        case .strict: return "阈值\(Int(threshold * 100))%，邻居\(minPoints)，更精准"
         }
     }
-    
+
     var detail: String {
-        "相似度阈值: \(Int(threshold * 100))%，最少 \(minClusterSize) 张组成一组"
-    }
-    
-    var description: String {
-        switch self {
-        case .lenient: return "低阈值，更多分组"
-        case .balanced: return "推荐设置"
-        case .strict: return "高阈值，更少分组"
-        }
-    }
-    
-    var minClusterSize: Int {
-        return 2
+        "相似度 ≥ \(Int(threshold * 100))%，至少 \(minPoints) 张相似"
     }
 }
 
@@ -205,7 +203,7 @@ final class SimilarityClusteringViewModel {
             
             // 2. 根据数据量选择聚类策略
             let threshold = selectedPreset.threshold
-            let minPoints = selectedPreset.minClusterSize
+            let minPoints = selectedPreset.minPoints
             
             let clusters: [PhotoCluster]
             

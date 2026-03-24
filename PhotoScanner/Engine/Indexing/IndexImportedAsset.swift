@@ -7,6 +7,7 @@ struct IndexedAssetInput: Sendable {
     let imageData: Data
     let createdAt: Date
 
+    /// 从 PhotosPicker 创建（photoLibraryAssetIdentifier 可能为 nil）
     init(
         assetLocalIdentifier: String? = nil,
         imageData: Data,
@@ -19,6 +20,25 @@ struct IndexedAssetInput: Sendable {
         let normalizedIdentifier = assetLocalIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.assetLocalIdentifier = normalizedIdentifier
         self.photoLibraryAssetIdentifier = normalizedIdentifier
+        self.imageData = imageData
+        self.createdAt = createdAt
+    }
+
+    /// 从 PHPicker 创建（photoLibraryAssetIdentifier 可靠）
+    init(
+        photoLibraryAssetIdentifier: String,
+        imageData: Data,
+        createdAt: Date = Date()
+    ) throws {
+        guard !imageData.isEmpty else {
+            throw PSError.invalidInput("导入图片数据不能为空")
+        }
+        guard !photoLibraryAssetIdentifier.isEmpty else {
+            throw PSError.invalidInput("photoLibraryAssetIdentifier 不能为空")
+        }
+
+        self.assetLocalIdentifier = photoLibraryAssetIdentifier
+        self.photoLibraryAssetIdentifier = photoLibraryAssetIdentifier
         self.imageData = imageData
         self.createdAt = createdAt
     }
