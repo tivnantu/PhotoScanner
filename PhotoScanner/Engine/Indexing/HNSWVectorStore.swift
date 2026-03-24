@@ -23,6 +23,9 @@ actor HNSWVectorStore: VectorStore {
     /// HNSW 索引实例
     private var index: HNSWIndex
     
+    /// 索引存储（用于持久化）
+    private let indexStore: DiskBackedIndexStore
+    
     /// 当前快照（用于持久化）
     private var currentSnapshot: IndexSnapshot?
     
@@ -34,7 +37,13 @@ actor HNSWVectorStore: VectorStore {
     
     // MARK: - Initialization
     
-    init(embeddingDimension: Int = 512, config: HNSWIndex.Config? = nil) {
+    /// 标准初始化器（用于全局持久化）
+    init(
+        indexStore: DiskBackedIndexStore,
+        embeddingDimension: Int = 512,
+        config: HNSWIndex.Config? = nil
+    ) {
+        self.indexStore = indexStore
         self.embeddingDimension = embeddingDimension
         
         // 确保 config.dimension 与 embeddingDimension 一致
@@ -61,7 +70,63 @@ actor HNSWVectorStore: VectorStore {
         self.index = HNSWIndex(config: self.hnswConfig)
     }
     
+    /// 临时场景初始化器（用于聚类等临时计算，不需要持久化）
+    init(embeddingDimension: Int = 512, config: HNSWIndex.Config? = nil) {
+        // 使用临时 indexStore（不会被实际使用）
+        self.indexStore = DiskBackedIndexStore()
+        self.embeddingDimension = embeddingDimension
+        
+        if let config = config {
+            self.hnswConfig = HNSWIndex.Config(
+                maxConnections: config.maxConnections,
+                maxConnectionsLayer0: config.maxConnectionsLayer0,
+                efConstruction: config.efConstruction,
+                efSearch: config.efSearch,
+                dimension: embeddingDimension,
+                distanceMetric: config.distanceMetric
+            )
+        } else {
+            self.hnswConfig = HNSWIndex.Config(
+                maxConnections: 16,
+                maxConnectionsLayer0: 32,
+                efConstruction: 200,
+                efSearch: 100,
+                dimension: embeddingDimension,
+                distanceMetric: .cosine
+            )
+        }
+        
+        self.index = HNSWIndex(config: self.hnswConfig)
+    }
+    
     // MARK: - VectorStore Protocol
+    
+    func restoreIfAvailable() async throws -> Bool {
+        // 从 indexStore 加载快照
+        guard let snapshot = try await indexStore.loadSnapshot() else {
+            currentSnapshot = nil
+            return false
+        }
+        
+        // 清空现有索引
+        index.clear()
+        
+        // 从快照构建 HNSW 索引
+        let entries = snapshot.entries
+        var vectors: [(id: String, vector: [Float])] = []
+        vectors.reserveCapacity(entries.count)
+        
+        for entry in entries {
+            vectors.append((id: entry.assetLocalIdentifier, vector: entry.embedding))
+        }
+        
+        // 批量插入
+        index.insertBatch(vectors: vectors)
+        currentSnapshot = snapshot
+        
+        Logger.index.info("HNSW 索引从快照恢复，条目数: \(entries.count)")
+        return true
+    }
     
     func replaceSnapshot(_ snapshot: IndexSnapshot) async throws {
         // 清空现有索引

@@ -15,6 +15,8 @@ struct VectorSearchResult: Sendable, Equatable {
 }
 
 protocol VectorStore: Sendable {
+    /// 从持久化恢复索引（如果有）
+    func restoreIfAvailable() async throws -> Bool
     func replaceSnapshot(_ snapshot: IndexSnapshot) async throws
     func loadSnapshot() async throws -> IndexSnapshot?
     func search(queryEmbedding: [Float], topK: Int) async throws -> [VectorSearchResult]

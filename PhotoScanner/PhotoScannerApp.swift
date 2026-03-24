@@ -29,7 +29,7 @@ struct PhotoScannerApp: App {
         let embeddingService = EmbeddingService(plugin: plugin)
         let similarityEngine = SimilarityEngine(embeddingService: embeddingService)
         let indexStore = DiskBackedIndexStore()
-        let vectorStore = MMapBruteForceVectorStore(indexStore: indexStore)
+        let vectorStore = HNSWVectorStore(indexStore: indexStore)
         let runtimePerformanceStore = RuntimePerformanceStore()
         
         // 缩略图缓存

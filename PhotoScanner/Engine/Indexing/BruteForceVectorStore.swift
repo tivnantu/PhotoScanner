@@ -13,6 +13,11 @@ actor BruteForceVectorStore: VectorStore {
 
     private var snapshot: IndexSnapshot?
 
+    func restoreIfAvailable() async throws -> Bool {
+        // BruteForceVectorStore 纯内存实现，无持久化恢复
+        return snapshot != nil
+    }
+
     func replaceSnapshot(_ snapshot: IndexSnapshot) async throws {
         self.snapshot = snapshot
         Logger.index.info("VectorStore 已替换快照，条目数: \(snapshot.manifest.itemCount)")

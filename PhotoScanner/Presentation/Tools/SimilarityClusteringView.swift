@@ -252,37 +252,40 @@ private struct ClusterGridItem: View {
     let thumbnail: UIImage?
     
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            // 缩略图
-            if let thumbnail = thumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(height: 120)
-                    .clipped()
-            } else {
-                ZStack {
-                    Color(.systemGray5)
-                        .frame(height: 120)
-                    
-                    Image(systemName: "photo")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.secondary)
+        GeometryReader { geometry in
+            ZStack(alignment: .bottomLeading) {
+                // 缩略图
+                if let thumbnail = thumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.width)
+                        .clipped()
+                } else {
+                    ZStack {
+                        Color(.systemGray5)
+                        
+                        Image(systemName: "photo")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                
+                // 数量标签
+                Text("\(cluster.assetIds.count)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.black.opacity(0.6))
+                    .clipShape(Capsule())
+                    .padding(6)
             }
-            
-            // 数量标签
-            Text("\(cluster.assetIds.count)")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.black.opacity(0.6))
-                .clipShape(Capsule())
-                .padding(6)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .aspectRatio(1, contentMode: .fill)
+        .frame(height: 120)
     }
 }
 
@@ -301,20 +304,22 @@ private struct ClusterDetailView: View {
                     spacing: 4
                 ) {
                     ForEach(cluster.assetIds, id: \.self) { assetId in
-                        if let thumbnail = viewModel.thumbnail(for: assetId) {
-                            Image(uiImage: thumbnail)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(height: 120)
-                                .clipped()
-                        } else {
-                            Color(.systemGray5)
-                                .frame(height: 120)
-                                .overlay {
-                                    Image(systemName: "photo")
-                                        .foregroundStyle(.secondary)
-                                }
+                        GeometryReader { geometry in
+                            if let thumbnail = viewModel.thumbnail(for: assetId) {
+                                Image(uiImage: thumbnail)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: geometry.size.width, height: geometry.size.width)
+                                    .clipped()
+                            } else {
+                                Color(.systemGray5)
+                                    .overlay {
+                                        Image(systemName: "photo")
+                                            .foregroundStyle(.secondary)
+                                    }
+                            }
                         }
+                        .aspectRatio(1, contentMode: .fill)
                     }
                 }
                 .padding(4)
