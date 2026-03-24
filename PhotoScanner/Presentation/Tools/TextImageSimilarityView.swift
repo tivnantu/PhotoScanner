@@ -12,8 +12,7 @@ struct TextImageSimilarityView: View {
     @Environment(\.services) private var services
     
     @State private var viewModel: TextImageSimilarityViewModel
-    @State private var selectedItem: PhotosPickerItem?
-    @State private var showingImagePicker = false
+    @State private var showPHPicker = false
     
     init(services: AppServices) {
         _viewModel = State(initialValue: TextImageSimilarityViewModel(services: services))
@@ -38,10 +37,9 @@ struct TextImageSimilarityView: View {
         }
         .navigationTitle("图文相似度")
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: selectedItem) { _, newValue in
-            Task {
-                if let data = try? await newValue?.loadTransferable(type: Data.self),
-                   let uiImage = UIImage(data: data) {
+        .sheet(isPresented: $showPHPicker) {
+            PHPickerWrapper(isPresented: $showPHPicker, selectionLimit: 1) { items in
+                if let item = items.first, let uiImage = UIImage(data: item.imageData) {
                     viewModel.selectedImage = uiImage
                 }
             }
@@ -66,13 +64,15 @@ struct TextImageSimilarityView: View {
                         .cornerRadius(12)
                     
                     Button("更换图片") {
-                        showingImagePicker = true
+                        showPHPicker = true
                     }
                     .font(.subheadline)
                 }
             } else {
                 // 未选择图片
-                PhotosPicker(selection: $selectedItem, matching: .images) {
+                Button {
+                    showPHPicker = true
+                } label: {
                     VStack(spacing: 12) {
                         Image(systemName: "photo.on.rectangle.angled")
                             .font(.system(size: 48))

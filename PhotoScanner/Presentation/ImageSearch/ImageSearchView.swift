@@ -4,7 +4,7 @@ import PhotosUI
 struct ImageSearchView: View {
     @Environment(\.services) private var services
     @State private var viewModel: ImageSearchViewModel?
-    @State private var selectedPickerItem: PhotosPickerItem?
+    @State private var showPHPicker = false
     
     var body: some View {
         Group {
@@ -16,26 +16,20 @@ struct ImageSearchView: View {
             }
         }
         .navigationTitle("以图搜图")
+        .sheet(isPresented: $showPHPicker) {
+            PHPickerWrapper(isPresented: $showPHPicker, selectionLimit: 1) { items in
+                if let item = items.first, let viewModel {
+                    Task {
+                        await viewModel.searchWithImageData(item.imageData)
+                    }
+                }
+            }
+        }
         .task {
             guard viewModel == nil else { return }
             let nextViewModel = ImageSearchViewModel(services: services)
             viewModel = nextViewModel
             await nextViewModel.initialize()
-        }
-        .onChange(of: selectedPickerItem) { _, newItem in
-            if let newItem, let viewModel {
-                Task {
-                    // 尝试使用 assetId
-                    if let assetId = newItem.itemIdentifier {
-                        await viewModel.selectImage(assetId: assetId)
-                    } else {
-                        // 回退到原图数据
-                        if let data = try? await newItem.loadTransferable(type: Data.self) {
-                            await viewModel.searchWithImageData(data)
-                        }
-                    }
-                }
-            }
         }
     }
     
@@ -83,7 +77,9 @@ extension ImageSearchView {
 extension ImageSearchView {
     @ViewBuilder
     private func imagePickerSection(_ viewModel: ImageSearchViewModel) -> some View {
-        PhotosPicker(selection: $selectedPickerItem, matching: .images) {
+        Button {
+            showPHPicker = true
+        } label: {
             ZStack {
                 if let previewImage = viewModel.selectedPreviewImage {
                     // 已选择图片

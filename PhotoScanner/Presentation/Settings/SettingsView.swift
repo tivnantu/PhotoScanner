@@ -752,10 +752,10 @@ class SettingsViewModel {
     
     /// 从系统相册获取图片并开始构建索引
     private func startBuildingFromPhotoLibrary() async throws {
-        // 获取相册访问状态
-        let accessState = await photoLibraryAssetProvider.currentAccessState()
+        // 先请求相册访问权限
+        let accessState = await photoLibraryAssetProvider.requestReadAccessIfNeeded()
         guard accessState.hasReadAccess else {
-            throw PSError.invalidInput("没有相册访问权限")
+            throw PSError.invalidInput("没有相册访问权限，请在系统设置中授权")
         }
 
         // 获取所有图片资源
@@ -780,7 +780,7 @@ class SettingsViewModel {
         }
 
         // 限制并发度（避免 PHImageManager 过载）
-        let maxConcurrent = 4
+        let maxConcurrent = 8
         var inputs: [IndexedAssetInput] = []
         var failedCount = 0
 

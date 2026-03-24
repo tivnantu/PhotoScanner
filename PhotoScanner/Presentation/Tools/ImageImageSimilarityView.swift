@@ -12,8 +12,8 @@ struct ImageImageSimilarityView: View {
     @Environment(\.services) private var services
     
     @State private var viewModel: ImageImageSimilarityViewModel
-    @State private var selectedItem1: PhotosPickerItem?
-    @State private var selectedItem2: PhotosPickerItem?
+    @State private var showPHPicker1 = false
+    @State private var showPHPicker2 = false
     
     init(services: AppServices) {
         _viewModel = State(initialValue: ImageImageSimilarityViewModel(services: services))
@@ -35,18 +35,16 @@ struct ImageImageSimilarityView: View {
         }
         .navigationTitle("图图相似度")
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: selectedItem1) { _, newValue in
-            Task {
-                if let data = try? await newValue?.loadTransferable(type: Data.self),
-                   let uiImage = UIImage(data: data) {
+        .sheet(isPresented: $showPHPicker1) {
+            PHPickerWrapper(isPresented: $showPHPicker1, selectionLimit: 1) { items in
+                if let item = items.first, let uiImage = UIImage(data: item.imageData) {
                     viewModel.selectedImage1 = uiImage
                 }
             }
         }
-        .onChange(of: selectedItem2) { _, newValue in
-            Task {
-                if let data = try? await newValue?.loadTransferable(type: Data.self),
-                   let uiImage = UIImage(data: data) {
+        .sheet(isPresented: $showPHPicker2) {
+            PHPickerWrapper(isPresented: $showPHPicker2, selectionLimit: 1) { items in
+                if let item = items.first, let uiImage = UIImage(data: item.imageData) {
                     viewModel.selectedImage2 = uiImage
                 }
             }
@@ -62,7 +60,7 @@ struct ImageImageSimilarityView: View {
             imageSlot(
                 image: viewModel.selectedImage1,
                 title: "图片 1",
-                selectedItem: $selectedItem1
+                showPicker: $showPHPicker1
             )
             
             // VS 分隔
@@ -82,7 +80,7 @@ struct ImageImageSimilarityView: View {
             imageSlot(
                 image: viewModel.selectedImage2,
                 title: "图片 2",
-                selectedItem: $selectedItem2
+                showPicker: $showPHPicker2
             )
         }
     }
@@ -91,7 +89,7 @@ struct ImageImageSimilarityView: View {
     private func imageSlot(
         image: UIImage?,
         title: String,
-        selectedItem: Binding<PhotosPickerItem?>
+        showPicker: Binding<Bool>
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
@@ -108,14 +106,16 @@ struct ImageImageSimilarityView: View {
                         .clipped()
                         .cornerRadius(12)
                     
-                    PhotosPicker(selection: selectedItem, matching: .images) {
-                        Text("更换")
-                            .font(.caption)
+                    Button("更换") {
+                        showPicker.wrappedValue = true
                     }
+                    .font(.caption)
                 }
             } else {
                 // 未选择图片
-                PhotosPicker(selection: selectedItem, matching: .images) {
+                Button {
+                    showPicker.wrappedValue = true
+                } label: {
                     VStack(spacing: 8) {
                         Image(systemName: "photo")
                             .font(.system(size: 32))
@@ -229,8 +229,6 @@ struct ImageImageSimilarityView: View {
                 // 重新计算按钮
                 Button("重新计算") {
                     viewModel.reset()
-                    selectedItem1 = nil
-                    selectedItem2 = nil
                 }
                 .font(.subheadline)
             }
