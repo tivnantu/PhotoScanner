@@ -32,6 +32,29 @@
 | **SwiftUI** | 界面框架 |
 | **Swift 6 Concurrency** | actor 隔离 + async/await 并发模型 |
 
+## ⚠️ 当前方案限制与优化方向
+
+本项目目前采用 **Chinese-CLIP ONNX 端桥接方案**，在 iOS 端通过 ONNX Runtime Mobile 运行模型推理。
+
+**当前限制**：
+- 推理速度不够理想，索引构建阶段单张图片预处理+推理约 100ms
+- 设备发热控制难度较大，需要热节流机制主动暂停推理
+- 无法充分利用 Apple Neural Engine (ANE) 硬件加速
+
+**优化方向**：
+如果能从 Chinese-CLIP 直接转换出 **CoreML 模型**，将带来显著的性能提升：
+- **推理速度提升 2-5 倍**：CoreML 充分利用 ANE 硬件加速，推理延迟可降至 20-40ms
+- **功耗降低 50-70%**：ANE 专用神经网络处理器能效比远高于 CPU/GPU
+- **发热显著降低**：硬件级加速大幅减少 CPU/GPU 负载，无需热节流
+- **内存占用优化**：CoreML 提供更高效的模型内存管理
+
+**技术路线**：
+```
+Chinese-CLIP (PyTorch) → ONNX → CoreML (.mlmodel)
+```
+
+欢迎有 CoreML 模型转换经验的开发者参与优化！
+
 ## 快速开始
 
 ```bash
