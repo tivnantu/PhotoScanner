@@ -15,6 +15,8 @@ struct ImageImageSimilarityView: View {
     @State private var viewModel: ImageImageSimilarityViewModel
     @State private var showPHPicker1 = false
     @State private var showPHPicker2 = false
+    @State private var selectedPickerItems1: [PHPickerResultItem] = []
+    @State private var selectedPickerItems2: [PHPickerResultItem] = []
     
     init(services: AppServices) {
         _viewModel = State(initialValue: ImageImageSimilarityViewModel(services: services))
@@ -47,38 +49,42 @@ struct ImageImageSimilarityView: View {
             Text(viewModel.errorMessage ?? "")
         }
         .sheet(isPresented: $showPHPicker1) {
-            PHPickerWrapper(isPresented: $showPHPicker1, selectionLimit: 1) { items in
-                await MainActor.run {
-                    if let item = items.first {
-                        if let uiImage = UIImage(data: item.imageData) {
-                            viewModel.selectedImage1 = uiImage
-                            Logger.ui.info("图图相似度: 成功设置图片1，大小 \(item.imageData.count) bytes")
-                        } else {
-                            Logger.ui.warning("图图相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
-                            viewModel.errorMessage = "图片加载失败，请重试"
-                        }
-                    } else {
-                        Logger.ui.warning("图图相似度: items 为空（图片1）")
-                    }
-                }
-            }
+            PHPickerWrapper(
+                isPresented: $showPHPicker1,
+                selectedItems: $selectedPickerItems1,
+                selectionLimit: 1
+            )
         }
         .sheet(isPresented: $showPHPicker2) {
-            PHPickerWrapper(isPresented: $showPHPicker2, selectionLimit: 1) { items in
-                await MainActor.run {
-                    if let item = items.first {
-                        if let uiImage = UIImage(data: item.imageData) {
-                            viewModel.selectedImage2 = uiImage
-                            Logger.ui.info("图图相似度: 成功设置图片2，大小 \(item.imageData.count) bytes")
-                        } else {
-                            Logger.ui.warning("图图相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
-                            viewModel.errorMessage = "图片加载失败，请重试"
-                        }
-                    } else {
-                        Logger.ui.warning("图图相似度: items 为空（图片2）")
-                    }
-                }
+            PHPickerWrapper(
+                isPresented: $showPHPicker2,
+                selectedItems: $selectedPickerItems2,
+                selectionLimit: 1
+            )
+        }
+        .onChange(of: selectedPickerItems1) { _, newItems in
+            guard let item = newItems.first else { return }
+            Logger.ui.info("图图相似度 onChange1: 收到 \(newItems.count) 个结果")
+            if let uiImage = UIImage(data: item.imageData) {
+                viewModel.selectedImage1 = uiImage
+                Logger.ui.info("图图相似度: 成功设置图片1，大小 \(item.imageData.count) bytes")
+            } else {
+                Logger.ui.warning("图图相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
+                viewModel.errorMessage = "图片加载失败，请重试"
             }
+            selectedPickerItems1 = []
+        }
+        .onChange(of: selectedPickerItems2) { _, newItems in
+            guard let item = newItems.first else { return }
+            Logger.ui.info("图图相似度 onChange2: 收到 \(newItems.count) 个结果")
+            if let uiImage = UIImage(data: item.imageData) {
+                viewModel.selectedImage2 = uiImage
+                Logger.ui.info("图图相似度: 成功设置图片2，大小 \(item.imageData.count) bytes")
+            } else {
+                Logger.ui.warning("图图相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
+                viewModel.errorMessage = "图片加载失败，请重试"
+            }
+            selectedPickerItems2 = []
         }
     }
     

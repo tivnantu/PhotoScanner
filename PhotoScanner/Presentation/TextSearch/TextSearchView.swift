@@ -8,6 +8,7 @@ struct TextSearchView: View {
     @Environment(\.services) private var services
     @State private var viewModel: TextSearchViewModel?
     @State private var showPHPicker = false
+    @State private var selectedPickerItems: [PHPickerResultItem] = []
     @FocusState private var isTextFieldFocused: Bool
 
     var initialQuery: String = ""
@@ -32,12 +33,16 @@ struct TextSearchView: View {
             .sheet(isPresented: $showPHPicker) {
                 PHPickerWrapper(
                     isPresented: $showPHPicker,
-                    selectionLimit: 0
-                ) { items in
-                    Task {
-                        await importPHPickerItems(items, into: viewModel)
-                    }
+                    selectedItems: $selectedPickerItems,
+                    selectionLimit: 0  // 0 = 多选
+                )
+            }
+            .onChange(of: selectedPickerItems) { _, newItems in
+                guard !newItems.isEmpty, let viewModel else { return }
+                Task {
+                    await importPHPickerItems(newItems, into: viewModel)
                 }
+                selectedPickerItems = []
             }
             .task {
                 guard viewModel == nil else { return }

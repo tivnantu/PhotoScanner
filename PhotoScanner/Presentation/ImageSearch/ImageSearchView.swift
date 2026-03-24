@@ -5,6 +5,7 @@ struct ImageSearchView: View {
     @Environment(\.services) private var services
     @State private var viewModel: ImageSearchViewModel?
     @State private var showPHPicker = false
+    @State private var selectedPickerItems: [PHPickerResultItem] = []
     
     var body: some View {
         Group {
@@ -17,13 +18,18 @@ struct ImageSearchView: View {
         }
         .navigationTitle("以图搜图")
         .sheet(isPresented: $showPHPicker) {
-            PHPickerWrapper(isPresented: $showPHPicker, selectionLimit: 1) { items in
-                if let item = items.first, let viewModel {
-                    Task {
-                        await viewModel.searchWithImageData(item.imageData)
-                    }
-                }
+            PHPickerWrapper(
+                isPresented: $showPHPicker,
+                selectedItems: $selectedPickerItems,
+                selectionLimit: 1
+            )
+        }
+        .onChange(of: selectedPickerItems) { _, newItems in
+            guard let item = newItems.first, let viewModel else { return }
+            Task {
+                await viewModel.searchWithImageData(item.imageData)
             }
+            selectedPickerItems = []
         }
         .task {
             guard viewModel == nil else { return }

@@ -6,6 +6,7 @@ struct SearchHomeView: View {
     @Environment(\.services) private var services
     @State private var searchText: String = ""
     @State private var showPHPicker = false
+    @State private var selectedPickerItems: [PHPickerResultItem] = []
     @State private var searchHistory: [SearchHistoryItem] = []
     @State private var showClearHistoryAlert: Bool = false
 
@@ -46,14 +47,17 @@ struct SearchHomeView: View {
             .sheet(isPresented: $showPHPicker) {
                 PHPickerWrapper(
                     isPresented: $showPHPicker,
+                    selectedItems: $selectedPickerItems,
                     selectionLimit: 1
-                ) { items in
-                    if let item = items.first {
-                        Task {
-                            await performImageSearch(item)
-                        }
+                )
+            }
+            .onChange(of: selectedPickerItems) { _, newItems in
+                if let item = newItems.first {
+                    Task {
+                        await performImageSearch(item)
                     }
                 }
+                selectedPickerItems = []
             }
             .onChange(of: searchText) { oldValue, newValue in
                 if newValue.isEmpty && searchMode == .text {

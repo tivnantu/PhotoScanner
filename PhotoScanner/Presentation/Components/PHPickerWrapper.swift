@@ -13,27 +13,31 @@ import OSLog
 import UniformTypeIdentifiers
 
 /// PHPicker 结果
-struct PHPickerResultItem: Sendable {
+struct PHPickerResultItem: Sendable, Equatable {
     /// PHAsset localIdentifier（可靠）
     let assetIdentifier: String
     /// 图片数据
     let imageData: Data
+    
+    static func == (lhs: PHPickerResultItem, rhs: PHPickerResultItem) -> Bool {
+        lhs.assetIdentifier == rhs.assetIdentifier && lhs.imageData == rhs.imageData
+    }
 }
 
-/// PHPicker SwiftUI 包装器
+/// PHPicker SwiftUI 包装器 - 使用 Binding 传递结果
 struct PHPickerWrapper: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
+    @Binding var selectedItems: [PHPickerResultItem]
     let selectionLimit: Int
-    let onComplete: @Sendable ([PHPickerResultItem]) async -> Void
 
     init(
         isPresented: Binding<Bool>,
-        selectionLimit: Int = 0,
-        onComplete: @escaping @Sendable ([PHPickerResultItem]) async -> Void
+        selectedItems: Binding<[PHPickerResultItem]>,
+        selectionLimit: Int = 1
     ) {
         self._isPresented = isPresented
+        self._selectedItems = selectedItems
         self.selectionLimit = selectionLimit
-        self.onComplete = onComplete
     }
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
@@ -66,8 +70,8 @@ struct PHPickerWrapper: UIViewControllerRepresentable {
 
             Logger.ui.info("PHPicker: 开始处理 \(results.count) 个结果")
 
-            Task { [weak self] in
-                guard self != nil else {
+            Task { @MainActor [weak self] in
+                guard let self = self else {
                     Logger.ui.warning("PHPicker: self 已释放")
                     return
                 }
@@ -91,20 +95,15 @@ struct PHPickerWrapper: UIViewControllerRepresentable {
                             assetIdentifier: assetIdentifier,
                             imageData: data
                         ))
-                        Logger.ui.info("PHPicker: items.count = \(items.count)")
                     } else {
                         Logger.ui.warning("PHPicker: 加载图片数据失败，assetIdentifier: \(assetIdentifier)")
                     }
                 }
 
-                Logger.ui.info("PHPicker: 处理完成，items.count = \(items.count)")
-                if !items.isEmpty {
-                    Logger.ui.info("PHPicker: 调用 onComplete")
-                    await parent.onComplete(items)
-                    Logger.ui.info("PHPicker: onComplete 调用完成")
-                } else {
-                    Logger.ui.warning("PHPicker: items 为空，不调用 onComplete")
-                }
+                Logger.ui.info("PHPicker: 处理完成，items.count = \(items.count)，直接设置 selectedItems")
+                // 直接设置 Binding，不通过闭包传递
+                parent.selectedItems = items
+                Logger.ui.info("PHPicker: selectedItems 已设置，count = \(parent.selectedItems.count)")
             }
         }
 

@@ -14,6 +14,7 @@ struct TextImageSimilarityView: View {
     
     @State private var viewModel: TextImageSimilarityViewModel
     @State private var showPHPicker = false
+    @State private var selectedPickerItems: [PHPickerResultItem] = []
     
     init(services: AppServices) {
         _viewModel = State(initialValue: TextImageSimilarityViewModel(services: services))
@@ -49,22 +50,24 @@ struct TextImageSimilarityView: View {
             Text(viewModel.errorMessage ?? "")
         }
         .sheet(isPresented: $showPHPicker) {
-            PHPickerWrapper(isPresented: $showPHPicker, selectionLimit: 1) { items in
-                await MainActor.run {
-                    if let item = items.first {
-                        if let uiImage = UIImage(data: item.imageData) {
-                            viewModel.selectedImage = uiImage
-                            Logger.ui.info("图文相似度: 成功设置选中图片，大小 \(item.imageData.count) bytes")
-                        } else {
-                            Logger.ui.warning("图文相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
-                            viewModel.errorMessage = "图片加载失败，请重试"
-                        }
-                    } else {
-                        Logger.ui.warning("图文相似度: items 为空")
-                        viewModel.errorMessage = "未选择图片"
-                    }
-                }
+            PHPickerWrapper(
+                isPresented: $showPHPicker,
+                selectedItems: $selectedPickerItems,
+                selectionLimit: 1
+            )
+        }
+        .onChange(of: selectedPickerItems) { _, newItems in
+            guard let item = newItems.first else { return }
+            Logger.ui.info("图文相似度 onChange: 收到 \(newItems.count) 个结果")
+            if let uiImage = UIImage(data: item.imageData) {
+                viewModel.selectedImage = uiImage
+                Logger.ui.info("图文相似度: 成功设置选中图片，大小 \(item.imageData.count) bytes")
+            } else {
+                Logger.ui.warning("图文相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
+                viewModel.errorMessage = "图片加载失败，请重试"
             }
+            // 清空以备下次选择
+            selectedPickerItems = []
         }
     }
     
