@@ -855,6 +855,13 @@ class SettingsViewModel {
                 // 注意：如果是用户暂停，canResumeBuilding 应该保持 true
                 // refreshStatus() 已经正确设置了状态，这里不需要再覆盖
             } catch {
+                // CancellationError 是用户主动暂停，不是错误
+                if error is CancellationError {
+                    Logger.app.info("索引构建被用户暂停")
+                    // 状态已由 pauseBuilding() 设置
+                    return
+                }
+
                 Logger.app.error("索引构建失败: \(error)")
                 await MainActor.run {
                     self.isBuilding = false

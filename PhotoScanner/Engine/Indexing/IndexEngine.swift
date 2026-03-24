@@ -321,6 +321,9 @@ actor IndexEngine {
                             await progressHandler?(.building(progress: progress))
                         }
 
+                    } catch is CancellationError {
+                        // 用户取消，静默跳过
+                        continue
                     } catch {
                         consecutiveFailures += 1
                         skippedCount += 1
