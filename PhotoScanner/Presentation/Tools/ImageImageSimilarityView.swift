@@ -64,24 +64,18 @@ struct ImageImageSimilarityView: View {
         }
         .onChange(of: selectedPickerItems1) { _, newItems in
             guard let item = newItems.first else { return }
-            Logger.ui.info("图图相似度 onChange1: 收到 \(newItems.count) 个结果")
             if let uiImage = UIImage(data: item.imageData) {
                 viewModel.selectedImage1 = uiImage
-                Logger.ui.info("图图相似度: 成功设置图片1，大小 \(item.imageData.count) bytes")
             } else {
-                Logger.ui.warning("图图相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
                 viewModel.errorMessage = "图片加载失败，请重试"
             }
             selectedPickerItems1 = []
         }
         .onChange(of: selectedPickerItems2) { _, newItems in
             guard let item = newItems.first else { return }
-            Logger.ui.info("图图相似度 onChange2: 收到 \(newItems.count) 个结果")
             if let uiImage = UIImage(data: item.imageData) {
                 viewModel.selectedImage2 = uiImage
-                Logger.ui.info("图图相似度: 成功设置图片2，大小 \(item.imageData.count) bytes")
             } else {
-                Logger.ui.warning("图图相似度: UIImage(data:) 返回 nil，数据大小 \(item.imageData.count)")
                 viewModel.errorMessage = "图片加载失败，请重试"
             }
             selectedPickerItems2 = []
