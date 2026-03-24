@@ -779,58 +779,70 @@ class SettingsViewModel {
             self.totalCount = maxIndexCount
         }
 
-        // 并行获取图片数据（批量处理，避免内存占用过大）
-        let batchSize = 50  // 每批处理 50 张
+        // 限制并发度（避免 PHImageManager 过载）
+        let maxConcurrent = 4
         var inputs: [IndexedAssetInput] = []
+        var failedCount = 0
 
-        for batchStart in stride(from: 0, to: maxIndexCount, by: batchSize) {
-            let batchEnd = min(batchStart + batchSize, maxIndexCount)
+        await withTaskGroup(of: (input: IndexedAssetInput?, index: Int).self) { group in
+            var active = 0
+            var nextIndex = 0
 
-            // 并行获取当前批次的图片数据
-            let batchInputs = await withTaskGroup(of: IndexedAssetInput?.self, returning: [IndexedAssetInput].self) { group in
-                for i in batchStart..<batchEnd {
+            while nextIndex < maxIndexCount || active > 0 {
+                // 添加新任务直到达到并发限制
+                while active < maxConcurrent && nextIndex < maxIndexCount {
+                    let i = nextIndex
                     let asset = fetchResult.object(at: i)
                     let localIdentifier = asset.localIdentifier
                     let createdAt = asset.creationDate ?? Date()
 
                     group.addTask {
                         guard let thumbnailData = await self.photoLibraryAssetProvider.previewResource(for: localIdentifier)?.previewData else {
-                            return nil
+                            return (nil, i)
                         }
-
-                        return try? IndexedAssetInput(
-                            assetLocalIdentifier: localIdentifier,
-                            imageData: thumbnailData,
-                            createdAt: createdAt
-                        )
+                        do {
+                            let input = try IndexedAssetInput(
+                                photoLibraryAssetIdentifier: localIdentifier,
+                                imageData: thumbnailData,
+                                createdAt: createdAt
+                            )
+                            return (input, i)
+                        } catch {
+                            return (nil, i)
+                        }
                     }
+                    active += 1
+                    nextIndex += 1
                 }
 
-                var results: [IndexedAssetInput] = []
-                for await result in group {
-                    if let input = result {
-                        results.append(input)
+                // 等待一个任务完成
+                if let result = await group.next() {
+                    active -= 1
+                    if let input = result.input {
+                        inputs.append(input)
+                    } else {
+                        failedCount += 1
+                    }
+
+                    // 更新进度
+                    let completed = nextIndex - active
+                    await MainActor.run {
+                        self.completedCount = completed
+                    }
+
+                    // 每 100 张打印一次进度
+                    if completed % 100 == 0 {
+                        Logger.app.info("已处理 \(completed)/\(maxIndexCount) 张，成功 \(inputs.count) 张，失败 \(failedCount) 张")
                     }
                 }
-                return results
             }
-
-            inputs.append(contentsOf: batchInputs)
-
-            // 更新进度
-            let completedBatch = batchEnd
-            await MainActor.run {
-                self.completedCount = completedBatch
-            }
-
-            Logger.app.info("已导入 \(completedBatch)/\(maxIndexCount) 张图片")
         }
 
         guard !inputs.isEmpty else {
             throw PSError.invalidInput("没有可索引的图片")
         }
 
-        Logger.app.info("成功导入 \(inputs.count) 张图片，开始构建索引")
+        Logger.app.info("导入完成：成功 \(inputs.count) 张，失败 \(failedCount) 张，开始构建索引")
         
         // 调用 addAssetsAndRebuild 开始构建
         _ = try await indexEngine.addAssetsAndRebuild(inputs) { [weak self] buildState in
