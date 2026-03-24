@@ -68,18 +68,30 @@ final class TextSearchViewModel {
         !trimmedQuery.isEmpty
             && isIndexReady
             && !isSearching
-            && !isBuilding
     }
 
     var isBuilding: Bool {
         if case .building = buildState {
             return true
         }
+        if case .thermalPaused = buildState {
+            return true
+        }
         return buildState == .preparing
     }
 
+    /// 索引是否可用于搜索
+    /// - 构建完成时可用
+    /// - 构建过程中，如果已有部分索引（indexedCount > 0）也可用
     var isIndexReady: Bool {
         if case .ready = buildState {
+            return true
+        }
+        // 构建过程中，如果有已建立的索引，也可搜索
+        if case .building(let progress) = buildState, progress.completedCount > 0 {
+            return true
+        }
+        if case .thermalPaused(let progress) = buildState, progress.completedCount > 0 {
             return true
         }
         return false

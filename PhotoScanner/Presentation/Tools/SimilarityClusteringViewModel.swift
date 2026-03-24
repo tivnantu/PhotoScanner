@@ -175,8 +175,22 @@ final class SimilarityClusteringViewModel {
         switch buildState {
         case .idle:
             indexState = .idle
-        case .preparing, .building, .thermalPaused:
+        case .preparing:
             indexState = .building
+        case .building(let progress):
+            // 构建过程中，如果有已建立的部分索引，则可用
+            if progress.completedCount > 0 {
+                indexState = .partial(count: progress.completedCount)
+            } else {
+                indexState = .building
+            }
+        case .thermalPaused(let progress):
+            // 热冷却暂停时，如果有已建立的部分索引，则可用
+            if progress.completedCount > 0 {
+                indexState = .partial(count: progress.completedCount)
+            } else {
+                indexState = .paused
+            }
         case .ready(let manifest):
             indexState = .ready(count: manifest.itemCount)
         case .failed:

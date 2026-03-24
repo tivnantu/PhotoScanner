@@ -9,6 +9,8 @@
 import SwiftUI
 import PhotosUI
 import Photos
+import OSLog
+import UniformTypeIdentifiers
 
 /// PHPicker 结果
 struct PHPickerResultItem: Sendable {
@@ -69,31 +71,61 @@ struct PHPickerWrapper: UIViewControllerRepresentable {
                 for result in results {
                     // 获取真实的 PHAsset localIdentifier
                     guard let assetIdentifier = result.assetIdentifier else {
+                        Logger.ui.warning("PHPicker: assetIdentifier 为 nil")
                         continue
                     }
 
                     // 加载图片数据
                     if let data = await loadImageData(from: result.itemProvider) {
+                        Logger.ui.info("PHPicker: 成功加载图片，大小 \(data.count) bytes")
                         items.append(PHPickerResultItem(
                             assetIdentifier: assetIdentifier,
                             imageData: data
                         ))
+                    } else {
+                        Logger.ui.warning("PHPicker: 加载图片数据失败，assetIdentifier: \(assetIdentifier)")
                     }
                 }
 
-                await parent.onComplete(items)
+                if !items.isEmpty {
+                    await parent.onComplete(items)
+                }
             }
         }
 
         private func loadImageData(from itemProvider: NSItemProvider) async -> Data? {
+            // 先尝试直接加载 UIImage
+            if let data = await loadImageAsUIImage(from: itemProvider) {
+                return data
+            }
+
+            // 如果失败，尝试加载为 Data
+            return await loadRawData(from: itemProvider)
+        }
+
+        private func loadImageAsUIImage(from itemProvider: NSItemProvider) async -> Data? {
             await withCheckedContinuation { continuation in
                 itemProvider.loadObject(ofClass: UIImage.self) { object, error in
+                    if let error = error {
+                        Logger.ui.warning("PHPicker loadObject UIImage 错误: \(error.localizedDescription)")
+                    }
                     if let image = object as? UIImage,
                        let data = image.jpegData(compressionQuality: 0.9) {
                         continuation.resume(returning: data)
                     } else {
                         continuation.resume(returning: nil)
                     }
+                }
+            }
+        }
+
+        private func loadRawData(from itemProvider: NSItemProvider) async -> Data? {
+            await withCheckedContinuation { continuation in
+                itemProvider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, error in
+                    if let error = error {
+                        Logger.ui.warning("PHPicker loadDataRepresentation 错误: \(error.localizedDescription)")
+                    }
+                    continuation.resume(returning: data)
                 }
             }
         }

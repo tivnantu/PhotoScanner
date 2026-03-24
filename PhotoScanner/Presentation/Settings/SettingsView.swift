@@ -234,90 +234,121 @@ private struct IndexStatusCard: View {
     
     // 构建中
     private var buildingCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            // 第一行：状态图标 + 阶段名称
+            HStack(spacing: 10) {
                 Image(systemName: viewModel.isThermalPaused ? "thermometer.sun" : "arrow.trianglehead.clockwise")
-                    .font(.system(size: 18))
+                    .font(.system(size: 16))
                     .foregroundStyle(viewModel.isThermalPaused ? .orange : .blue)
                     .symbolEffect(.rotate, isActive: !viewModel.isThermalPaused)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 24, height: 24)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(viewModel.buildPhase.rawValue)
+                Text(viewModel.buildPhase.rawValue)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
+                Spacer()
+
+                // 进度百分比
+                if viewModel.totalCount > 0 {
+                    Text("\(Int(viewModel.buildProgress * 100))%")
                         .font(.subheadline)
                         .fontWeight(.medium)
+                        .foregroundStyle(viewModel.isThermalPaused ? .orange : .blue)
+                }
+            }
 
-                    if viewModel.totalCount > 0 {
-                        switch viewModel.buildPhase {
-                        case .importingThumbnails:
-                            Text("已获取 \(viewModel.successCount.formatted()) 张 · 失败 \(viewModel.failedCount.formatted()) 张 · 处理中 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        case .buildingIndex:
-                            Text("已构建 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        case .thermalPaused:
-                            Text("已构建 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张 · 为避免设备过热，正在等待冷却（约 1 分钟）")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        default:
-                            Text("\(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Text("正在初始化...")
+            // 第二行：进度信息
+            if viewModel.totalCount > 0 {
+                HStack(spacing: 12) {
+                    // 进度
+                    Text("\(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    // 速度和剩余时间
+                    if !viewModel.averageSpeed.isEmpty {
+                        Text(viewModel.averageSpeed)
                             .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if !viewModel.estimatedTimeRemaining.isEmpty && !viewModel.isThermalPaused {
+                        Text("剩余 \(viewModel.estimatedTimeRemaining)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
-                Spacer()
-            }
-
-            if viewModel.totalCount > 0 {
+                // 进度条
                 ProgressView(value: Double(viewModel.completedCount), total: Double(max(viewModel.totalCount, 1)))
                     .tint(viewModel.isThermalPaused ? .orange : .blue)
+
+                // 热冷却提示
+                if viewModel.isThermalPaused {
+                    Text("为避免设备过热，正在等待冷却（约 1 分钟）")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            } else {
+                Text("正在初始化...")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
         }
     }
     
     // 已暂停
     private var pausedCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            // 第一行：状态图标 + 标题 + 进度百分比
+            HStack(spacing: 10) {
                 Image(systemName: "pause.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 16))
                     .foregroundStyle(.orange)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 24, height: 24)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("分析已暂停")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-
-                    if viewModel.totalCount > 0 {
-                        Text("已构建 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张 · 已完成的部分可正常搜索")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if viewModel.indexedCount > 0 {
-                        Text("已构建 \(viewModel.indexedCount.formatted()) 张 · 可正常搜索")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("点击继续分析以恢复构建")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
+                Text("分析已暂停")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
 
                 Spacer()
+
+                if viewModel.totalCount > 0 {
+                    let progress = Double(viewModel.completedCount) / Double(max(viewModel.totalCount, 1))
+                    Text("\(Int(progress * 100))%")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.orange)
+                }
             }
 
+            // 第二行：进度信息
             if viewModel.totalCount > 0 {
+                HStack {
+                    Text("已构建 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Text("已完成的部分可正常搜索")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 ProgressView(value: Double(viewModel.completedCount), total: Double(max(viewModel.totalCount, 1)))
                     .tint(.orange)
+            } else if viewModel.indexedCount > 0 {
+                Text("已构建 \(viewModel.indexedCount.formatted()) 张 · 可正常搜索")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("点击继续分析以恢复构建")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
         }
     }
@@ -618,6 +649,11 @@ class SettingsViewModel {
     var totalCount: Int = 0
     var successCount: Int = 0  // 成功获取缩略图数量
     var failedCount: Int = 0   // 失败数量
+
+    // 构建速度统计
+    var buildStartTime: ContinuousClock.Instant?
+    var averageSpeed: String = ""  // 平均速度（张/秒）
+    var estimatedTimeRemaining: String = ""  // 预计剩余时间
     
     var totalLibraryCount: Int = 0
     var indexedCount: Int = 0
@@ -773,10 +809,16 @@ class SettingsViewModel {
         buildTask = Task { [weak self] in
             guard let self = self else { return }
 
+            // 初始化构建统计
+            let startTime = ContinuousClock.now
+
             await MainActor.run {
                 self.isBuilding = true
                 self.canResumeBuilding = false
                 self.buildPhase = .importingThumbnails
+                self.buildStartTime = startTime
+                self.averageSpeed = ""
+                self.estimatedTimeRemaining = ""
             }
 
             do {
@@ -946,6 +988,7 @@ class SettingsViewModel {
             buildProgress = progress.fractionCompleted
             completedCount = progress.completedCount
             totalCount = progress.totalCount
+            updateBuildSpeed(completed: progress.completedCount)
 
         case .thermalPaused(let progress):
             isThermalPaused = true
@@ -960,6 +1003,8 @@ class SettingsViewModel {
             isThermalPaused = false
             buildPhase = .completed
             indexedCount = manifest.itemCount
+            averageSpeed = ""
+            estimatedTimeRemaining = ""
 
         case .failed:
             isBuilding = false
@@ -968,6 +1013,48 @@ class SettingsViewModel {
 
         default:
             break
+        }
+    }
+
+    /// 更新构建速度和预计剩余时间
+    private func updateBuildSpeed(completed: Int) {
+        guard let startTime = buildStartTime, completed > 0 else { return }
+
+        let elapsed = startTime.duration(to: .now)
+        let elapsedSeconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+
+        guard elapsedSeconds > 0 else { return }
+
+        // 计算平均速度（张/秒）
+        let speed = Double(completed) / elapsedSeconds
+        if speed >= 1 {
+            averageSpeed = String(format: "%.1f 张/秒", speed)
+        } else {
+            averageSpeed = String(format: "%.1f 秒/张", 1.0 / speed)
+        }
+
+        // 计算预计剩余时间
+        let remaining = totalCount - completed
+        if remaining > 0 && speed > 0 {
+            let remainingSeconds = Double(remaining) / speed
+            estimatedTimeRemaining = formatTimeRemaining(remainingSeconds)
+        }
+    }
+
+    /// 格式化剩余时间
+    private func formatTimeRemaining(_ seconds: Double) -> String {
+        if seconds < 60 {
+            return String(format: "%.0f 秒", seconds)
+        } else if seconds < 3600 {
+            let minutes = Int(seconds / 60)
+            return "\(minutes) 分钟"
+        } else {
+            let hours = Int(seconds / 3600)
+            let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
+            if minutes > 0 {
+                return "\(hours) 小时 \(minutes) 分钟"
+            }
+            return "\(hours) 小时"
         }
     }
 }
