@@ -171,8 +171,11 @@ actor HNSWVectorStore: VectorStore {
             return []
         }
         
+        // 构建 assetId -> entry 的映射
+        let entryMap = Dictionary(uniqueKeysWithValues: snapshot.entries.map { ($0.assetLocalIdentifier, $0) })
+        
         return results.compactMap { result -> VectorSearchResult? in
-            guard let entry = snapshot.entries.first(where: { $0.assetLocalIdentifier == result.externalId }) else {
+            guard let entry = entryMap[result.externalId] else {
                 return nil
             }
             // HNSW 返回的是距离，转换为相似度分数
@@ -207,9 +210,12 @@ actor HNSWVectorStore: VectorStore {
             return Array(repeating: [], count: queryEmbeddings.count)
         }
         
+        // 构建 assetId -> entry 的映射（O(n) 一次，避免每次查找都 O(n)）
+        let entryMap = Dictionary(uniqueKeysWithValues: snapshot.entries.map { ($0.assetLocalIdentifier, $0) })
+        
         return allResults.map { results in
             results.compactMap { result -> VectorSearchResult? in
-                guard let entry = snapshot.entries.first(where: { $0.assetLocalIdentifier == result.externalId }) else {
+                guard let entry = entryMap[result.externalId] else {
                     return nil
                 }
                 let similarity = 1.0 - result.distance
