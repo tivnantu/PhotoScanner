@@ -130,15 +130,21 @@ struct SimilarityClusteringView: View {
                     spacing: 8
                 ) {
                     ForEach(viewModel.clusters) { cluster in
-                        ClusterGridItem(
-                            cluster: cluster,
-                            thumbnail: viewModel.thumbnail(for: cluster.centerAssetId ?? "")
-                        )
+                        NavigationLink(value: cluster) {
+                            ClusterGridItem(
+                                cluster: cluster,
+                                thumbnail: viewModel.thumbnail(for: cluster.centerAssetId ?? "")
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 20)
             }
             .padding(.vertical, 20)
+        }
+        .navigationDestination(for: PhotoCluster.self) { cluster in
+            ClusterDetailView(cluster: cluster, viewModel: viewModel)
         }
     }
     

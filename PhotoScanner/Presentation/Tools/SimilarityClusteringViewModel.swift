@@ -492,7 +492,7 @@ final class SimilarityClusteringViewModel {
 
 // MARK: - 数据模型
 
-struct PhotoCluster: Identifiable {
+struct PhotoCluster: Identifiable, Hashable {
     let id: String
     let assetIds: [String]
     let centerAssetId: String?
