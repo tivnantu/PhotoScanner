@@ -647,11 +647,17 @@ class SettingsViewModel {
     }
     
     func refreshStatus() async {
+        Logger.app.info("refreshStatus: 被调用，当前 isBuilding=\(self.isBuilding), canResumeBuilding=\(self.canResumeBuilding)")
+
         // 如果当前正在构建，不刷新状态（避免覆盖暂停状态）
-        guard !isBuilding else { return }
+        guard !isBuilding else {
+            Logger.app.info("refreshStatus: 跳过，因为 isBuilding=true")
+            return
+        }
 
         // 获取索引状态
         let state = await indexEngine.loadCurrentState()
+        Logger.app.info("refreshStatus: 加载状态 = \(state)")
 
         switch state {
         case .building(let progress):
@@ -693,10 +699,13 @@ class SettingsViewModel {
 
         case .idle:
             // 如果已经有进度信息（暂停状态），不重置
-            if completedCount > 0 && canResumeBuilding {
+            Logger.app.info("refreshStatus: .idle 分支，completedCount=\(self.completedCount), canResumeBuilding=\(self.canResumeBuilding)")
+            if completedCount > 0 || canResumeBuilding {
                 // 保持暂停状态，不覆盖
+                Logger.app.info("refreshStatus: 保持暂停状态")
                 return
             }
+            Logger.app.info("refreshStatus: 设置为空闲状态")
             isBuilding = false
             canResumeBuilding = false
             buildPhase = .idle
@@ -752,6 +761,8 @@ class SettingsViewModel {
     }
     
     func pauseBuilding() {
+        Logger.app.info("pauseBuilding: 开始暂停，当前 completedCount=\(self.completedCount), totalCount=\(self.totalCount)")
+
         // 取消构建任务
         buildTask?.cancel()
         buildTask = nil
@@ -762,7 +773,7 @@ class SettingsViewModel {
         // 注意：不重置 completedCount、totalCount、successCount、failedCount
         // 这些值应该保持，以便 pausedCard 显示已建立的部分
 
-        Logger.app.info("用户暂停索引构建，已完成 \(self.completedCount)/\(self.totalCount) 张")
+        Logger.app.info("pauseBuilding: 暂停完成，isBuilding=\(self.isBuilding), canResumeBuilding=\(self.canResumeBuilding), completedCount=\(self.completedCount)")
     }
     
     func resumeBuilding() {
@@ -810,10 +821,8 @@ class SettingsViewModel {
                 // 构建完成（或取消），刷新状态
                 await self.refreshStatus()
 
-                await MainActor.run {
-                    self.isBuilding = false
-                    self.canResumeBuilding = false
-                }
+                // 注意：如果是用户暂停，canResumeBuilding 应该保持 true
+                // refreshStatus() 已经正确设置了状态，这里不需要再覆盖
             } catch {
                 Logger.app.error("索引构建失败: \(error)")
                 await MainActor.run {
