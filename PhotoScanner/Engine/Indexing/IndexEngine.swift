@@ -189,7 +189,7 @@ actor IndexEngine {
             }
 
             // 并行推理（embeddingService.embedImage 现在支持并发）
-            let maxConcurrency = 4
+            let maxConcurrency = 12
             var pendingAssets = sortedAssets.filter { entriesByID[$0.assetLocalIdentifier] == nil }
 
             while !pendingAssets.isEmpty {

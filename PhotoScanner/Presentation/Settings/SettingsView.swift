@@ -287,21 +287,30 @@ private struct IndexStatusCard: View {
                     .font(.system(size: 18))
                     .foregroundStyle(.orange)
                     .frame(width: 28, height: 28)
-                
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text("分析已暂停")
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    
-                    Text("\(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张 · 已完成的部分可正常搜索")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.numericText())
+
+                    if viewModel.totalCount > 0 {
+                        Text("已构建 \(viewModel.completedCount.formatted()) / \(viewModel.totalCount.formatted()) 张 · 已完成的部分可正常搜索")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if viewModel.indexedCount > 0 {
+                        Text("已构建 \(viewModel.indexedCount.formatted()) 张 · 可正常搜索")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("点击继续分析以恢复构建")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
-                
+
                 Spacer()
             }
-            
+
             if viewModel.totalCount > 0 {
                 ProgressView(value: Double(viewModel.completedCount), total: Double(max(viewModel.totalCount, 1)))
                     .tint(.orange)
@@ -623,6 +632,12 @@ class SettingsViewModel {
     
     func initialize() async {
         await refreshStatus()
+
+        // 如果有未完成的构建，自动恢复
+        if canResumeBuilding || isBuilding {
+            Logger.app.info("检测到未完成的构建，自动恢复")
+            resumeBuilding()
+        }
     }
     
     func refreshStatus() async {
@@ -631,16 +646,16 @@ class SettingsViewModel {
 
         switch state {
         case .building(let progress):
-            isBuilding = true
-            canResumeBuilding = false
+            isBuilding = false  // 不自动构建，等待用户确认
+            canResumeBuilding = true
             buildPhase = .buildingIndex
             buildProgress = progress.fractionCompleted
             completedCount = progress.completedCount
             totalCount = progress.totalCount
 
         case .preparing:
-            isBuilding = true
-            canResumeBuilding = false
+            isBuilding = false
+            canResumeBuilding = true
             buildPhase = .preparing
 
         case .ready(let manifest):
@@ -651,7 +666,7 @@ class SettingsViewModel {
 
         case .failed:
             isBuilding = false
-            canResumeBuilding = false
+            canResumeBuilding = true
             buildPhase = .idle
 
         case .idle:
