@@ -437,8 +437,16 @@ final class SimilarityClusteringViewModel {
         // 提取所有 embedding
         let embeddings = entries.map { $0.embedding }
         
-        // 一次性批量搜索（避免锁竞争）
-        let allResults = try await vectorStore.batchSearch(queryEmbeddings: embeddings, topK: k)
+        // 批量搜索：优先使用 HNSWVectorStore 的优化实现
+        // 注意：直接调用协议方法会走默认实现（逐个搜索），
+        // 必须动态类型转换才能调用具体类型的优化实现
+        let allResults: [[VectorSearchResult]]
+        if let hnswStore = vectorStore as? HNSWVectorStore {
+            allResults = try await hnswStore.batchSearch(queryEmbeddings: embeddings, topK: k)
+        } else {
+            // 回退：使用协议默认实现（逐个搜索）
+            allResults = try await vectorStore.batchSearch(queryEmbeddings: embeddings, topK: k)
+        }
         
         // 转换为邻居表
         var neighborTable: [[Int]] = []
