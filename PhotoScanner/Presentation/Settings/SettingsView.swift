@@ -780,63 +780,40 @@ class SettingsViewModel {
             self.totalCount = maxIndexCount
         }
 
-        // 限制并发度（参考 V1 串行模式，避免 PHImageManager 过载）
-        let maxConcurrent = 4
+        // 串行获取图片数据（参考 V1，避免 PHImageManager 过载和 iCloud 下载超时）
         var inputs: [IndexedAssetInput] = []
         var failedCount = 0
 
-        await withTaskGroup(of: (input: IndexedAssetInput?, index: Int).self) { group in
-            var active = 0
-            var nextIndex = 0
+        for i in 0..<maxIndexCount {
+            let asset = fetchResult.object(at: i)
+            let localIdentifier = asset.localIdentifier
+            let createdAt = asset.creationDate ?? Date()
 
-            while nextIndex < maxIndexCount || active > 0 {
-                // 添加新任务直到达到并发限制
-                while active < maxConcurrent && nextIndex < maxIndexCount {
-                    let i = nextIndex
-                    let asset = fetchResult.object(at: i)
-                    let localIdentifier = asset.localIdentifier
-                    let createdAt = asset.creationDate ?? Date()
-
-                    group.addTask {
-                        guard let thumbnailData = await self.photoLibraryAssetProvider.previewResource(for: localIdentifier)?.previewData else {
-                            return (nil, i)
-                        }
-                        do {
-                            let input = try IndexedAssetInput(
-                                photoLibraryAssetIdentifier: localIdentifier,
-                                imageData: thumbnailData,
-                                createdAt: createdAt
-                            )
-                            return (input, i)
-                        } catch {
-                            return (nil, i)
-                        }
-                    }
-                    active += 1
-                    nextIndex += 1
+            if let thumbnailData = await self.photoLibraryAssetProvider.previewResource(for: localIdentifier)?.previewData {
+                do {
+                    let input = try IndexedAssetInput(
+                        photoLibraryAssetIdentifier: localIdentifier,
+                        imageData: thumbnailData,
+                        createdAt: createdAt
+                    )
+                    inputs.append(input)
+                } catch {
+                    failedCount += 1
                 }
+            } else {
+                failedCount += 1
+            }
 
-                // 等待一个任务完成
-                if let result = await group.next() {
-                    active -= 1
-                    if let input = result.input {
-                        inputs.append(input)
-                    } else {
-                        failedCount += 1
-                    }
+            // 更新进度
+            let completed = i + 1
+            await MainActor.run {
+                self.completedCount = completed
+                self.successCount = inputs.count
+            }
 
-                    // 更新进度
-                    let completed = nextIndex - active
-                    await MainActor.run {
-                        self.completedCount = completed
-                        self.successCount = inputs.count
-                    }
-
-                    // 每 100 张打印一次进度
-                    if completed % 100 == 0 {
-                        Logger.app.info("已处理 \(completed)/\(maxIndexCount) 张，成功 \(inputs.count) 张，失败 \(failedCount) 张")
-                    }
-                }
+            // 每 50 张打印一次进度
+            if completed % 50 == 0 {
+                Logger.app.info("已处理 \(completed)/\(maxIndexCount) 张，成功 \(inputs.count) 张，失败 \(failedCount) 张")
             }
         }
 
