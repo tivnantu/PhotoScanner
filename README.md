@@ -1,6 +1,13 @@
-# PhotoScanner
+<div align="center">
+  <img src="docs/res/icon.png" alt="PhotoScanner Icon" width="120" height="120">
+  <h1>PhotoScanner</h1>
+</div>
 
 基于 Chinese-CLIP 的本地照片智能检索 iOS App。在设备端运行图文双塔模型，支持用中文描述搜索手机相册中的照片。
+
+<p align="center">
+  <img src="docs/res/demo.png" alt="PhotoScanner Demo" width="300">
+</p>
 
 ## 特性
 
@@ -69,15 +76,6 @@ Presentation → Engine → Foundation ← Infrastructure ← Plugin
 - **Plugin** — AI 模型插件（ChineseCLIP*）
 
 详见 [`docs/context/ARCHITECTURE.md`](docs/context/ARCHITECTURE.md)
-
-## 性能指标
-
-| 指标 | 数值 |
-|------|------|
-| 搜索延迟 (P95) | ~45ms |
-| 索引速度 | ~10 张/s |
-| 预处理时间 | ~5ms |
-| Embedding 维度 | 512 |
 
 ## 文档体系
 
