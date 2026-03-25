@@ -129,6 +129,9 @@ actor HNSWVectorStore: VectorStore {
     }
     
     func replaceSnapshot(_ snapshot: IndexSnapshot) async throws {
+        // 先持久化到磁盘（确保重启后可恢复）
+        try await indexStore.saveSnapshot(snapshot)
+        
         // 清空现有索引
         index.clear()
         
@@ -145,7 +148,7 @@ actor HNSWVectorStore: VectorStore {
         index.insertBatch(vectors: vectors)
         currentSnapshot = snapshot
         
-        Logger.index.info("HNSW 索引构建完成，条目数: \(entries.count)")
+        Logger.index.info("HNSW 索引构建完成并已持久化，条目数: \(entries.count)")
     }
     
     func loadSnapshot() async throws -> IndexSnapshot? {

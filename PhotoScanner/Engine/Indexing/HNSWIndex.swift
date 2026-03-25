@@ -261,6 +261,9 @@ final class HNSWIndex: @unchecked Sendable {
             }
         }
 
+        // 将更新后的 node（含连接关系）回写到 nodes 字典
+        nodes[nodeId] = node
+
         // 更新入口点
         if layer > maxLayer {
             entryPoint = nodeId

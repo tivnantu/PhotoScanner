@@ -136,6 +136,7 @@ actor IndexEngine {
 
     func clearAll() async throws {
         try await vectorStore.clear()
+        try await indexStore.clear()
     }
 
     private func buildIndex(
